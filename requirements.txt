@@ -1,0 +1,4 @@
+PyQt6>=6.4.0
+langchain>=0.0.300
+langchain-ollama>=0.0.1
+sqlite3
