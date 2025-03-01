@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel,
                            QComboBox, QLineEdit, QPushButton,
                            QFormLayout, QGroupBox, QScrollArea,
                            QWidget, QHBoxLayout)
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 import json
 import os

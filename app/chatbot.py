@@ -2,8 +2,9 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QTextEdit, QPushButton, QScrollArea,
                            QComboBox, QLabel, QMessageBox, QStatusBar, QFileDialog,
                            QProgressBar, QSystemTrayIcon, QMenu, QLineEdit, QInputDialog,
-                           QSplitter, QTabWidget, QFrame, QToolButton, QListWidget, QDialog)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
+                           QSplitter, QTabWidget, QFrame, QToolButton, QListWidget, QDialog,
+                           QListWidgetItem, QSizePolicy)
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, QSize
 from PyQt6.QtGui import QKeySequence, QShortcut
 import sys
 import json
@@ -36,44 +37,74 @@ class AIResponseThread(QThread):
             self.error_occurred.emit(str(e))
 
 class MessageBubble(QFrame):
-    def __init__(self, is_user=True, parent=None):
+    """A custom widget for displaying chat messages with enhanced features and styling."""
+    
+    def __init__(self, is_user=True, parent=None, chat_window=None):
         super().__init__(parent)
         self.is_user = is_user
+        self.chat_window = chat_window
+        self._content = ""
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Minimum
+        )
         self.setup_ui()
         
     def setup_ui(self):
+        """Initialize and setup the UI components with optimized styling."""
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setFrameShadow(QFrame.Shadow.Raised)
         
-        # Set appropriate styles based on sender
-        if self.is_user:
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: #2a5298;
-                    border-radius: 10px;
-                    margin-left: 80px;
-                    margin-right: 10px;
-                    padding: 10px;
-                }
-            """)
-        else:
-            self.setStyleSheet("""
-                QFrame {
-                    background-color: #3f3f3f;
-                    border-radius: 10px;
-                    margin-left: 10px;
-                    margin-right: 80px;
-                    padding: 10px;
-                }
-            """)
-            
+        # Apply cached styles based on message type
+        self.setStyleSheet(self._get_bubble_style())
+        
+        # Initialize layouts with optimized margins
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(7, 4, 7, 4)
+        self.layout.setSpacing(4)
         
-        # Header with timestamp and sender
+        # Setup header with optimized layout
+        self._setup_header()
+        
+        # Setup content area
+        self._setup_content()
+        
+        # Setup action buttons
+        self._setup_actions()
+        
+        # Setup context menu
+        self._setup_context_menu()
+        
+    def _get_bubble_style(self):
+        """Return cached styles for the bubble."""
+        return """
+            QFrame {
+                background-color: %(bg_color)s;
+                border-radius: 10px;
+                margin-left: %(margin_left)s;
+                margin-right: %(margin_right)s;
+                padding: 10px;
+            }
+        """ % {
+            'bg_color': '#2a5298' if self.is_user else '#3f3f3f',
+            'margin_left': '80px' if self.is_user else '10px',
+            'margin_right': '10px' if self.is_user else '80px'
+        }
+        
+    def _setup_header(self):
+        """Setup the header section with sender info and timestamp."""
         header_layout = QHBoxLayout()
-        self.sender_label = QLabel(ChatBotWindow().settings.get('user_name', 'You') if self.is_user else "AI")
-        self.sender_label.setStyleSheet(f"color: {'#ffffff' if self.is_user else '#4fc3f7'}; font-weight: bold;")
+        header_layout.setSpacing(8)
+        
+        # Optimize sender name retrieval
+        sender_name = (self.chat_window.settings.get('user_name', 'You') 
+                      if self.chat_window and hasattr(self.chat_window, 'settings')
+                      else 'You') if self.is_user else 'AI'
+        
+        self.sender_label = QLabel(sender_name)
+        self.sender_label.setStyleSheet(
+            f"color: {'#ffffff' if self.is_user else '#4fc3f7'}; font-weight: bold;"
+        )
         
         self.time_label = QLabel()
         self.time_label.setStyleSheet("color: #bbbbbb; font-size: 12px;")
@@ -82,7 +113,10 @@ class MessageBubble(QFrame):
         header_layout.addStretch()
         header_layout.addWidget(self.time_label)
         
-        # Message content
+        self.layout.addLayout(header_layout)
+        
+    def _setup_content(self):
+        """Setup the content area with optimized text display."""
         self.content = QTextEdit()
         self.content.setReadOnly(True)
         self.content.setFrameStyle(QFrame.Shape.NoFrame)
@@ -91,128 +125,470 @@ class MessageBubble(QFrame):
                 background-color: transparent;
                 color: #ffffff;
                 border: none;
+                selection-background-color: #666666;
+                selection-color: #ffffff;
             }
         """)
+        self.content.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.content.document().setDocumentMargin(0)
         
-        # Create action buttons for messages
+        # Connect to documentSizeChanged for dynamic height adjustment
+        self.content.document().documentLayout().documentSizeChanged.connect(
+            self._adjust_content_height
+        )
+        
+        self.layout.addWidget(self.content)
+        
+    def _adjust_content_height(self):
+        """Dynamically adjust content height based on text content."""
+        doc_height = self.content.document().size().height()
+        margins = self.content.contentsMargins()
+        total_margins = margins.top() + margins.bottom() + 10
+        
+        # Set minimum and maximum heights with scrollbar activation threshold
+        min_height = 30
+        max_height = 300
+        
+        if doc_height <= max_height:
+            self.content.setFixedHeight(int(max(min_height, doc_height + total_margins)))
+            self.content.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        else:
+            self.content.setFixedHeight(max_height)
+            self.content.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        
+    def _setup_actions(self):
+        """Setup action buttons with improved functionality."""
         actions_layout = QHBoxLayout()
+        actions_layout.setSpacing(4)
+        
+        buttons = []
         
         if self.is_user:
-            edit_btn = QToolButton()
-            edit_btn.setIcon(IconManager.get_icon("edit"))
-            edit_btn.setToolTip("Edit message")
-            actions_layout.addWidget(edit_btn)
+            edit_btn = self._create_action_button("edit", "Edit message", self._handle_edit)
+            buttons.append(edit_btn)
             
-        copy_btn = QToolButton()
-        copy_btn.setIcon(IconManager.get_icon("copy"))
-        copy_btn.setToolTip("Copy to clipboard")
+        copy_btn = self._create_action_button("copy", "Copy to clipboard", self._handle_copy)
+        buttons.append(copy_btn)
         
         if not self.is_user:
-            speak_btn = QToolButton()
-            speak_btn.setIcon(IconManager.get_icon("speak"))
-            speak_btn.setToolTip("Read aloud")
-            actions_layout.addWidget(speak_btn)
+            speak_btn = self._create_action_button("speak", "Read aloud", self._handle_speak)
+            save_btn = self._create_action_button("bookmark", "Save response", self._handle_save)
+            buttons.extend([speak_btn, save_btn])
+        
+        for btn in buttons:
+            actions_layout.addWidget(btn)
             
-            save_btn = QToolButton()
-            save_btn.setIcon(IconManager.get_icon("bookmark"))
-            save_btn.setToolTip("Save response")
-            actions_layout.addWidget(save_btn)
-        
-        actions_layout.addWidget(copy_btn)
         actions_layout.addStretch()
-        
-        # Add layouts to main layout
-        self.layout.addLayout(header_layout)
-        self.layout.addWidget(self.content)
         self.layout.addLayout(actions_layout)
         
+    def _create_action_button(self, icon_name, tooltip, callback):
+        """Create an action button with specified parameters."""
+        btn = QToolButton()
+        btn.setIcon(IconManager.get_icon(icon_name))
+        btn.setToolTip(tooltip)
+        btn.setIconSize(QSize(16, 16))
+        btn.setFixedSize(24, 24)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.clicked.connect(callback)
+        return btn
+        
+    def _setup_context_menu(self):
+        """Setup context menu for additional options."""
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._show_context_menu)
+        
     def set_content(self, text, timestamp=None):
+        """Set the message content with optimized HTML handling."""
+        self._content = text
         self.content.setHtml(text)
+        
         if timestamp:
             self.time_label.setText(timestamp)
         else:
             self.time_label.setText(datetime.now().strftime("%H:%M:%S"))
             
+        # Force layout update to ensure proper sizing
+        QApplication.processEvents()
+        self._adjust_content_height()
+        
     def append_content(self, text):
+        """Append content to the message with optimized HTML handling."""
+        self._content += text
         current_html = self.content.toHtml()
-        # Remove HTML close tags, add new content and re-add close tags
+        
         if "</body></html>" in current_html:
-            current_html = current_html.replace("</body></html>", f"{text}</body></html>")
-            self.content.setHtml(current_html)
+            self.content.setHtml(
+                current_html.replace("</body></html>", f"{text}</body></html>")
+            )
         else:
             self.content.setHtml(current_html + text)
+            
+        # Force layout update to ensure proper sizing
+        QApplication.processEvents()
+        self._adjust_content_height()
+            
+    def _handle_copy(self):
+        """Copy message content to clipboard."""
+        QApplication.clipboard().setText(self.content.toPlainText())
+        
+        # Show feedback to user with different message for AI responses
+        QApplication.clipboard().setText(self.content.toPlainText())
+        if self.chat_window:
+            self.chat_window.update_status("Message copied to clipboard")
+        
+    def _handle_edit(self):
+        """Handle message editing."""
+        if self.chat_window and self.is_user:
+            text = self.content.toPlainText()
+            self.chat_window.input_box.setPlainText(text)
+            self.chat_window.input_box.setFocus()
+            self.chat_window.update_status("Message ready for editing")
+            
+    def _handle_speak(self):
+        """Handle text-to-speech functionality."""
+        if self.chat_window and not self.is_user:
+            self.chat_window.update_status("Text-to-speech feature initiated")
+            # Placeholder for TTS implementation
+            QMessageBox.information(
+                self.chat_window, 
+                "Text-to-Speech", 
+                "This feature will be implemented in a future update."
+            )
+            
+    def _handle_save(self):
+        """Handle saving the response."""
+        if self.chat_window and not self.is_user:
+            text = self.content.toPlainText()
+            
+            # First ensure the conversation is saved to database
+            if hasattr(self.chat_window, 'current_user_message') and hasattr(self.chat_window, 'db'):
+                # Get the previous user message that prompted this response
+                user_message = getattr(self.chat_window, 'current_user_message', "")
+                
+                # Save to database if not empty
+                if user_message and text:
+                    try:
+                        # Save to database with current session
+                        self.chat_window.db.save_conversation(
+                            self.chat_window.current_model,
+                            user_message,
+                            text,
+                            self.chat_window.current_session
+                        )
+                        self.chat_window.update_status("Response saved to history")
+                        
+                        # Refresh the history list if we're in the history tab
+                        if self.chat_window.tabs.currentWidget() == self.chat_window.history_tab:
+                            self.chat_window.load_chat_history()
+                    except Exception as e:
+                        self.chat_window.update_status(f"Error saving to database: {str(e)}")
+            
+            # Then handle file saving
+            filename, _ = QFileDialog.getSaveFileName(
+                self.chat_window,
+                "Save Response",
+                "",
+                "Text Files (*.txt);;HTML Files (*.html);;All Files (*.*)"
+            )
+            
+            if filename:
+                try:
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        # Save as HTML if that format was selected
+                        if filename.endswith('.html'):
+                            f.write(self.content.toHtml())
+                        else:
+                            f.write(text)
+                    self.chat_window.update_status(f"Response saved to {filename}")
+                except Exception as e:
+                    self.chat_window.update_status(f"Error saving file: {str(e)}")
+            
+    def _show_context_menu(self, position):
+        """Show context menu with additional options."""
+        menu = QMenu(self)
+        menu.addAction("Copy", self._handle_copy)
+        
+        if self.is_user:
+            menu.addAction("Edit", self._handle_edit)
+        else:
+            menu.addAction("Save As...", self._handle_save)
+            menu.addAction("Read Aloud", self._handle_speak)
+            
+        menu.exec(self.mapToGlobal(position))
 
 class VoiceInputDialog(QDialog):
+    recording_finished = pyqtSignal(str)
+    status_update = pyqtSignal(str)  # New signal for status updates
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setup_ui()
+        self.setup_signals()
+        self.recognizer = sr.Recognizer()
+        self.text = ""
+        self.is_recording = False
+
+    def setup_ui(self):
+        """Initialize and setup UI components"""
         self.setWindowTitle("Voice Input")
         self.setMinimumWidth(400)
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                color: white;
+            }
+            QLabel {
+                color: white;
+                font-size: 14px;
+            }
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                min-width: 100px;
+            }
+            QPushButton:disabled {
+                background-color: #666666;
+            }
+            QProgressBar {
+                border: 2px solid #555555;
+                border-radius: 5px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #4CAF50;
+            }
+        """)
         
         self.layout = QVBoxLayout(self)
+        self.layout.setSpacing(10)
+        self.layout.setContentsMargins(20, 20, 20, 20)
         
+        # Status label with icon
+        status_layout = QHBoxLayout()
+        self.status_icon = QLabel()
+        self.status_icon.setFixedSize(24, 24)
         self.status_label = QLabel("Press Start to begin recording...")
-        self.layout.addWidget(self.status_label)
+        status_layout.addWidget(self.status_icon)
+        status_layout.addWidget(self.status_label, stretch=1)
+        self.layout.addLayout(status_layout)
         
+        # Enhanced progress visualization
         self.progress_bar = QProgressBar()
-        self.progress_bar.setRange(0, 0)  # Indeterminate
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setTextVisible(True)
         self.progress_bar.setVisible(False)
         self.layout.addWidget(self.progress_bar)
         
+        # Audio level indicator
+        self.level_bar = QProgressBar()
+        self.level_bar.setRange(0, 100)
+        self.level_bar.setTextVisible(False)
+        self.level_bar.setVisible(False)
+        self.layout.addWidget(self.level_bar)
+        
+        # Buttons with icons
         button_layout = QHBoxLayout()
-        
         self.start_button = QPushButton("Start Recording")
-        self.start_button.clicked.connect(self.start_recording)
-        
+        self.start_button.setIcon(IconManager.get_icon("microphone"))
         self.cancel_button = QPushButton("Cancel")
-        self.cancel_button.clicked.connect(self.reject)
+        self.cancel_button.setIcon(IconManager.get_icon("cancel"))
         
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.cancel_button)
-        
         self.layout.addLayout(button_layout)
-        
-        self.recognizer = sr.Recognizer()
-        self.text = ""
-        
+
+    def setup_signals(self):
+        """Setup signal connections"""
+        self.start_button.clicked.connect(self.toggle_recording)
+        self.cancel_button.clicked.connect(self.reject)
+        self.recording_finished.connect(self.on_recording_finished)
+        self.status_update.connect(self.update_status)
+
+    def toggle_recording(self):
+        """Toggle recording state"""
+        if not self.is_recording:
+            self.start_recording()
+        else:
+            self.stop_recording()
+
     def start_recording(self):
-        self.progress_bar.setVisible(True)
-        self.status_label.setText("Listening... Speak now")
-        self.start_button.setEnabled(False)
-        
-        # Start recording in a separate thread
-        self.recording_thread = QThread()
-        self.recording_thread.run = self.record_audio
-        self.recording_thread.start()
-        
-    def record_audio(self):
+        """Start voice recording with enhanced error handling"""
         try:
-            with sr.Microphone() as source:
-                self.recognizer.adjust_for_ambient_noise(source)
-                audio = self.recognizer.listen(source, timeout=5)
-                
-                self.status_label.setText("Processing speech...")
-                
-                try:
-                    self.text = self.recognizer.recognize_google(audio)
-                    self.accept()
-                except sr.UnknownValueError:
-                    self.status_label.setText("Could not understand audio. Try again.")
-                except sr.RequestError:
-                    self.status_label.setText("Could not request results. Check your internet connection.")
+            # Verify microphone availability
+            if not sr.Microphone.list_microphone_names():
+                raise OSError("No microphone detected")
+            
+            self.is_recording = True
+            self.progress_bar.setVisible(True)
+            self.level_bar.setVisible(True)
+            self.start_button.setText("Stop Recording")
+            self.update_status("Initializing microphone...", "recording")
+            
+            # Create and setup worker thread
+            self.worker_thread = QThread()
+            self.worker = VoiceWorker(self.recognizer)
+            self.worker.moveToThread(self.worker_thread)
+            
+            # Connect all signals
+            self.worker_thread.started.connect(self.worker.record)
+            self.worker.finished.connect(self.worker_thread.quit)
+            self.worker.finished.connect(self.worker.deleteLater)
+            self.worker_thread.finished.connect(self.worker_thread.deleteLater)
+            self.worker.error.connect(self.handle_error)
+            self.worker.result.connect(self.handle_result)
+            self.worker.status.connect(lambda s: self.update_status(s, "info"))
+            self.worker.audio_level.connect(self.update_audio_level)
+            
+            self.worker_thread.start()
+            
         except Exception as e:
-            self.status_label.setText(f"Error: {str(e)}")
-        
+            self.handle_error(str(e))
+
+    def stop_recording(self):
+        """Stop current recording"""
+        if hasattr(self, 'worker'):
+            self.worker.stop()
+            self.is_recording = False
+            self.start_button.setText("Start Recording")
+            self.update_status("Recording stopped", "info")
+
+    def update_status(self, message, status_type="info"):
+        """Update status with visual indicators"""
+        self.status_label.setText(message)
+        icon_name = {
+            "info": "info",
+            "error": "error",
+            "recording": "microphone",
+            "success": "success"
+        }.get(status_type, "info")
+        self.status_icon.setPixmap(IconManager.get_icon(icon_name).pixmap(24, 24))
+
+    def update_audio_level(self, level):
+        """Update audio level visualization"""
+        self.level_bar.setValue(int(level * 100))
+
+    def handle_error(self, error_msg):
+        """Handle errors with visual feedback"""
+        self.is_recording = False
         self.progress_bar.setVisible(False)
+        self.level_bar.setVisible(False)
         self.start_button.setEnabled(True)
+        self.start_button.setText("Start Recording")
+        self.update_status(f"Error: {error_msg}", "error")
+        QMessageBox.warning(self, "Error", error_msg)
+
+    def handle_result(self, text):
+        """Handle successful transcription"""
+        self.text = text
+        self.update_status("Recording successful!", "success")
+        self.accept()
+
+    def on_recording_finished(self):
+        """Clean up after recording"""
+        self.is_recording = False
+        self.progress_bar.setVisible(False)
+        self.level_bar.setVisible(False)
+        self.start_button.setEnabled(True)
+        self.start_button.setText("Start Recording")
 
     def get_text(self):
+        """Return transcribed text"""
         return self.text
+
+    def closeEvent(self, event):
+        """Handle dialog close"""
+        if self.is_recording:
+            self.stop_recording()
+        event.accept()
+
+class VoiceWorker(QObject):
+    finished = pyqtSignal()
+    error = pyqtSignal(str)
+    result = pyqtSignal(str)
+    status = pyqtSignal(str)  # New signal for status updates
+    audio_level = pyqtSignal(float)  # New signal for audio levels
+
+    def __init__(self, recognizer, language='en-US', timeout=5, phrase_time_limit=10):
+        super().__init__()
+        self.recognizer = recognizer
+        self.language = language
+        self.timeout = timeout
+        self.phrase_time_limit = phrase_time_limit
+        self._is_recording = False
+
+    def record(self):
+        """Record and transcribe audio with enhanced error handling and feedback"""
+        try:
+            with sr.Microphone() as source:
+                self.status.emit("Adjusting for ambient noise...")
+                # More aggressive noise adjustment
+                self.recognizer.dynamic_energy_threshold = True
+                self.recognizer.energy_threshold = 300
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+
+                self.status.emit("Listening...")
+                self._is_recording = True
+
+                # Enhanced audio capture with energy level feedback
+                audio = self.recognizer.listen(
+                    source,
+                    timeout=self.timeout,
+                    phrase_time_limit=self.phrase_time_limit,
+                    callback=lambda _, level: self.audio_level.emit(level)
+                )
+
+                self.status.emit("Processing speech...")
+                
+                try:
+                    # Try multiple recognition services
+                    text = self._try_recognition(audio)
+                    if text:
+                        self.result.emit(text)
+                    else:
+                        self.error.emit("Speech recognition failed with all available services")
+                        
+                except sr.UnknownValueError:
+                    self.error.emit("Could not understand audio. Please speak more clearly")
+                except sr.RequestError as e:
+                    self.error.emit(f"Service error: {str(e)}")
+
+        except Exception as e:
+            self.error.emit(f"Recording error: {str(e)}")
+        finally:
+            self._is_recording = False
+            self.finished.emit()
+
+    def _try_recognition(self, audio):
+        """Try multiple speech recognition services"""
+        services = [
+            (self.recognizer.recognize_google, {'language': self.language}),
+            (self.recognizer.recognize_sphinx, {'language': self.language}),
+        ]
+
+        for recognizer_func, kwargs in services:
+            try:
+                return recognizer_func(audio, **kwargs)
+            except:
+                continue
+        return None
+
+    def stop(self):
+        """Stop current recording"""
+        self._is_recording = False
+
+    @property
+    def is_recording(self):
+        """Check if recording is in progress"""
+        return self._is_recording
 
 class ChatBotWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Madick AI Chatbot")
-        self.setMinimumSize(1200, 800)
+        self.setWindowTitle("Madick Chatbot")
+        self.setMinimumSize(800, 600)
         
         # Initialize database
         self.db = ChatDatabase()
@@ -221,7 +597,7 @@ class ChatBotWindow(QMainWindow):
         self.load_settings()
         
         # Available models
-        self.models = ["llama3.2:1b", "deepseek-r1", "mistral:7b", "llama2:13b"]
+        self.models = ["llama3.2:1b", "deepseek-r1", "mistral:7b"]
         self.current_model = self.settings.get('default_model', "llama3.2:1b")
         self.llm = OllamaLLM(model=self.current_model)
         
@@ -346,55 +722,121 @@ class ChatBotWindow(QMainWindow):
         self.setCentralWidget(main_widget)
         main_layout = QVBoxLayout(main_widget)
         main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         
         # Create a splitter for sidebar and main content
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setHandleWidth(1)  # Thinner splitter handle
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #3f3f3f;
+            }
+        """)
         
-        # Create sidebar
+        # Create sidebar with gradient background
         self.sidebar = QWidget()
+        self.sidebar.setStyleSheet("""
+            QWidget {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                          stop:0 #2b2b2b, stop:1 #1e1e1e);
+                border-right: 1px solid #3f3f3f;
+            }
+        """)
         sidebar_layout = QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(5, 8, 5, 5)
+        sidebar_layout.setContentsMargins(8, 12, 8, 8)
+        sidebar_layout.setSpacing(8)
         
-        # Logo at the top of sidebar
+        # Enhanced logo section
         logo_label = QLabel("Madick AI")
-        logo_label.setStyleSheet("font-size: 18px; font-weight: bold; color: white; margin-bottom: 15px;")
+        logo_label.setStyleSheet("""
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+            padding: 10px;
+            border-bottom: 1px solid #3f3f3f;
+            margin-bottom: 15px;
+        """)
         sidebar_layout.addWidget(logo_label)
         
-        # Navigation buttons
+        # Create tabs widget
+        self.tabs = QTabWidget()
+        self.tabs.tabBar().setVisible(False)
+        self.tabs.setDocumentMode(True)
+        
+        # Enhanced navigation buttons with hover effects
+        nav_buttons_style = """
+            QPushButton {
+                text-align: left;
+                padding: 12px 15px;
+                border: none;
+                border-radius: 8px;
+                margin: 2px 0px;
+                font-size: 14px;
+                font-weight: 500;
+            }
+            QPushButton:hover {
+                background-color: #3f3f3f;
+            }
+            QPushButton[active="true"] {
+                background-color: #4CAF50;
+                color: white;
+            }
+        """
+        
         self.chat_nav_btn = QPushButton(" Chat")
         self.chat_nav_btn.setIcon(IconManager.get_icon("chat"))
-        self.chat_nav_btn.setStyleSheet(self.get_sidebar_button_style(True))
-        self.chat_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.chat_tab))
+        self.chat_nav_btn.setProperty("active", True)
         
         self.templates_nav_btn = QPushButton(" Templates")
         self.templates_nav_btn.setIcon(IconManager.get_icon("template"))
-        self.templates_nav_btn.setStyleSheet(self.get_sidebar_button_style())
-        self.templates_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.templates_tab))
         
         self.history_nav_btn = QPushButton(" History")
         self.history_nav_btn.setIcon(IconManager.get_icon("history"))
-        self.history_nav_btn.setStyleSheet(self.get_sidebar_button_style())
-        self.history_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.history_tab))
         
         self.files_nav_btn = QPushButton(" Files")
         self.files_nav_btn.setIcon(IconManager.get_icon("file"))
-        self.files_nav_btn.setStyleSheet(self.get_sidebar_button_style())
-        self.files_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.files_tab))
         
-        
-        sidebar_layout.addWidget(self.chat_nav_btn)
-        sidebar_layout.addWidget(self.templates_nav_btn)
-        sidebar_layout.addWidget(self.history_nav_btn)
-        sidebar_layout.addWidget(self.files_nav_btn)
+        for btn in [self.chat_nav_btn, self.templates_nav_btn, 
+                   self.history_nav_btn, self.files_nav_btn]:
+            btn.setStyleSheet(nav_buttons_style)
+            sidebar_layout.addWidget(btn)
+            
+        # Connect buttons to tab switching with smooth transitions
+        self.chat_nav_btn.clicked.connect(lambda: self.switch_tab(0))
+        self.templates_nav_btn.clicked.connect(lambda: self.switch_tab(1))
+        self.history_nav_btn.clicked.connect(lambda: self.switch_tab(2))
+        self.files_nav_btn.clicked.connect(lambda: self.switch_tab(3))
         
         sidebar_layout.addStretch()
         
-        # Settings button at bottom of sidebar
+        # Enhanced settings button
         self.settings_btn = QPushButton(" Settings")
         self.settings_btn.setIcon(IconManager.get_icon("settings"))
+        self.settings_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2b2b2b;
+                color: #bbbbbb;
+                border: 1px solid #3f3f3f;
+                border-radius: 8px;
+                padding: 12px;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #3f3f3f;
+                color: white;
+            }
+        """)
         self.settings_btn.clicked.connect(self.open_settings)
         sidebar_layout.addWidget(self.settings_btn)
         
+        # Create content area
+        self.content_area = QWidget()
+        self.content_area.setStyleSheet("background-color: #1e1e1e;")
+        content_layout = QVBoxLayout(self.content_area)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+
+        # Create tabs content
         # Main content area
         self.content_area = QWidget()
         content_layout = QVBoxLayout(self.content_area)
@@ -502,7 +944,7 @@ class ChatBotWindow(QMainWindow):
         
         self.chat_container = QWidget()
         self.chat_layout = QVBoxLayout(self.chat_container)
-        self.chat_layout.setContentsMargins(10, 10, 10, 10)
+        self.chat_layout.setContentsMargins(5, 5, 5, 5)
         self.chat_layout.setSpacing(15)
         self.chat_layout.addStretch()
         
@@ -540,11 +982,6 @@ class ChatBotWindow(QMainWindow):
         formatting_layout.addWidget(template_label)
         formatting_layout.addWidget(self.template_combo)
         formatting_layout.addStretch()
-        
-        #streaming_check = QCheckBox("Streaming Responses")
-        #streaming_check.setChecked(self.streaming_enabled)
-        #streaming_check.toggled.connect(self.toggle_streaming)
-        #formatting_layout.addWidget(streaming_check)
         
         input_layout.addLayout(formatting_layout)
         
@@ -603,17 +1040,17 @@ class ChatBotWindow(QMainWindow):
         self.history_tab = QWidget()
         history_layout = QVBoxLayout(self.history_tab)
         
-        # Search in history
+        # Enhanced search in history
         search_layout = QHBoxLayout()
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("Search in chat history...")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background-color: #3f3f3f;
-                color: white;
-                border: 1px solid #555555;
-                border-radius: 5px;
-                padding: 5px;
+            background-color: #3f3f3f;
+            color: white;
+            border: 1px solid #555555;
+            border-radius: 5px;
+            padding: 5px;
             }
         """)
         self.search_input.textChanged.connect(self.search_chat)
@@ -621,10 +1058,65 @@ class ChatBotWindow(QMainWindow):
         search_layout.addWidget(self.search_input)
         history_layout.addLayout(search_layout)
         
-        # History list
+        # Enhanced history list with better visualization
         self.history_list = QListWidget()
+        self.history_list.setStyleSheet("""
+            QListWidget {
+            background-color: #2b2b2b;
+            border: 1px solid #3f3f3f;
+            border-radius: 5px;
+            padding: 5px;
+            }
+            QListWidget::item {
+            color: white;
+            padding: 12px;
+            border-bottom: 1px solid #3f3f3f;
+            margin: 2px;
+            }
+            QListWidget::item:hover {
+            background-color: #3f3f3f;
+            }
+            QListWidget::item:selected {
+            background-color: #4CAF50;
+            }
+        """)
+        
+        # Load and display chat history with more details
+        conversations = self.db.get_recent_conversations(self.current_session)
+        for conv in conversations:
+            id, timestamp, model, user_msg, ai_resp = conv
+            item = QListWidgetItem()
+            # Show more detailed preview
+            preview = f"[{timestamp}] {model}\nUser: {user_msg[:50]}..."
+            if ai_resp:
+                preview += f"\nAI: {ai_resp[:50]}..."
+            item.setText(preview)
+            item.setData(Qt.ItemDataRole.UserRole, id)
+            self.history_list.addItem(item)
+            
         self.history_list.itemDoubleClicked.connect(self.load_history_item)
         history_layout.addWidget(self.history_list)
+        
+        # Controls for history management
+        controls_layout = QHBoxLayout()
+        
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.setIcon(IconManager.get_icon("refresh"))
+        refresh_btn.clicked.connect(self.load_chat_history)
+        
+        clear_history_btn = QPushButton("Clear History")
+        clear_history_btn.setIcon(IconManager.get_icon("trash"))
+        clear_history_btn.clicked.connect(self.clear_history)
+        
+        export_history_btn = QPushButton("Export")
+        export_history_btn.setIcon(IconManager.get_icon("export"))
+        export_history_btn.clicked.connect(self.export_chat)
+        
+        controls_layout.addWidget(refresh_btn)
+        controls_layout.addWidget(clear_history_btn)
+        controls_layout.addWidget(export_history_btn)
+        
+        history_layout.addLayout(controls_layout)
         
         # Create files tab
         self.files_tab = QWidget()
@@ -644,54 +1136,61 @@ class ChatBotWindow(QMainWindow):
         self.tabs.addTab(self.history_tab, "History")
         self.tabs.addTab(self.files_tab, "Files")
         
+        # Hide tabs bar buttons of navigation
+        self.tabs.tabBar().hide()
         content_layout.addWidget(self.tabs)
         
         # Add progress bar to layout
         content_layout.addWidget(self.progress_bar)
         
-        # Add both sidebar and content area to splitter
+        # Set improved initial splitter sizes
         self.splitter.addWidget(self.sidebar)
         self.splitter.addWidget(self.content_area)
-        
-        # Set initial splitter sizes - 20% sidebar, 80% content
-        self.splitter.setSizes([200, 800])
+        self.splitter.setSizes([250, 750])  # Slightly wider sidebar
         
         main_layout.addWidget(self.splitter)
         
-        # Set theme
-        if self.current_theme == "dark":
-            self.set_dark_theme()
-        else:
-            self.set_light_theme()
-            
+    def switch_tab(self, index):
+        # Update active state of navigation buttons
+        for i, btn in enumerate([self.chat_nav_btn, self.templates_nav_btn, 
+                               self.history_nav_btn, self.files_nav_btn]):
+            btn.setProperty("active", i == index)
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+        
+        # Switch to selected tab
+        self.tabs.setCurrentIndex(index)
+    
     def get_sidebar_button_style(self, selected=False):
+        base_style = """
+            QPushButton {
+                background-color: %(bg_color)s;
+                color: %(text_color)s;
+                border: none;
+                border-radius: 5px;
+                padding: 10px;
+                text-align: left;
+                %(extra_style)s
+            }
+        """
+        
         if selected:
-            return """
-                QPushButton {
-                    background-color: #3f3f3f;
-                    color: white;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 10px;
-                    text-align: left;
-                    font-weight: bold;
-                }
-            """
+            return base_style % {
+                'bg_color': '#3f3f3f',
+                'text_color': 'white',
+                'extra_style': 'font-weight: bold;'
+            }
         else:
-            return """
-                QPushButton {
-                    background-color: transparent;
-                    color: #bbbbbb;
-                    border: none;
-                    border-radius: 5px;
-                    padding: 10px;
-                    text-align: left;
+            return base_style % {
+                'bg_color': 'transparent',
+                'text_color': '#bbbbbb',
+                'extra_style': '''
                 }
                 QPushButton:hover {
                     background-color: #3f3f3f;
                     color: white;
-                }
-            """
+                }'''
+            }
 
     def get_combo_style(self):
         return """
@@ -801,15 +1300,27 @@ class ChatBotWindow(QMainWindow):
 
     def create_new_session(self):
         name, ok = QInputDialog.getText(self, "New Session", "Enter session name:")
-        if ok and name:
-            self.sessions.append(name)
-            self.session_combo.addItem(name)
-            self.session_combo.setCurrentText(name)
-            self.current_session = name
+        if ok and name.strip():  # Check if name is not empty after trimming
+            name = name.strip()
+            if name not in self.sessions:  # Check for duplicates
+                self.sessions.append(name)
+                self.session_combo.addItem(name)
+                self.session_combo.setCurrentText(name)
+                self.current_session = name
+            else:
+                QMessageBox.warning(self, "Warning", "Session name already exists!")
 
     def change_session(self, session_name):
-        self.current_session = session_name
-        self.load_chat_history()
+        if not session_name:
+            return
+        try:
+            self.current_session = session_name
+            self.load_chat_history()
+            self.update_history_list()
+            self.update_status(f"Switched to session: {session_name}")
+        except Exception as e:
+            self.update_status(f"Error changing session: {str(e)}")
+            self.current_session = "Default"
 
     def search_chat(self):
         search_text = self.search_input.text().lower()
@@ -817,10 +1328,12 @@ class ChatBotWindow(QMainWindow):
         # Reset all message highlights
         for bubble in self.message_bubbles:
             content = bubble.content.toPlainText()
+            base_style = bubble.styleSheet().replace("border: 2px solid #FFEB3B;", "")
+            
             if search_text and search_text in content.lower():
-                bubble.setStyleSheet(bubble.styleSheet() + "border: 2px solid #FFEB3B;")
+                bubble.setStyleSheet(base_style + " border: 2px solid #FFEB3B;")
             else:
-                bubble.setStyleSheet(bubble.styleSheet().replace("border: 2px solid #FFEB3B;", ""))
+                bubble.setStyleSheet(base_style)
 
     def show_shortcuts(self):
         shortcuts = """
@@ -844,7 +1357,7 @@ class ChatBotWindow(QMainWindow):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
         # Create and add user message bubble
-        user_bubble = MessageBubble(is_user=True)
+        user_bubble = MessageBubble(is_user=True, chat_window=self)
         user_bubble.set_content(user_message, timestamp)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, user_bubble)
         self.message_bubbles.append(user_bubble)
@@ -869,52 +1382,21 @@ class ChatBotWindow(QMainWindow):
         self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
         )
-
     def handle_ai_response(self, response):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
         # Create new AI response bubble
-        ai_bubble = MessageBubble(is_user=False)
+        ai_bubble = MessageBubble(is_user=False, chat_window=self)
         ai_bubble.set_content(self.format_response(response), timestamp)
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, ai_bubble)
         self.message_bubbles.append(ai_bubble)         
 
         self.db.save_conversation(self.current_model, self.current_user_message, response, self.current_session)
         
-        # Scroll to bottom
-        self.scroll_area.verticalScrollBar().setValue(
-            self.scroll_area.verticalScrollBar().maximum()
-        )
-
-        def handle_token(self, token):
-            """Handle streaming tokens"""
-            if not hasattr(self, 'current_ai_bubble'):
-                # Create new AI response bubble for streaming
-                self.current_ai_bubble = MessageBubble(is_user=False)
-                self.current_ai_bubble.set_content("", datetime.now().strftime("%H:%M:%S"))
-                self.chat_layout.insertWidget(self.chat_layout.count() - 1, self.current_ai_bubble)
-                self.message_bubbles.append(self.current_ai_bubble)
-                
-            # Append token to current bubble
-            self.current_ai_bubble.append_content(token)
+        # Update history list if we're in the history tab
+        if self.tabs.currentWidget() == self.history_tab:
+            self.update_history_list()
             
-            # Scroll to bottom
-            self.scroll_area.verticalScrollBar().setValue(
-                self.scroll_area.verticalScrollBar().maximum()
-            )
-
-    def handle_token(self, token):
-        """Handle streaming tokens"""
-        if not hasattr(self, 'current_ai_bubble'):
-            # Create new AI response bubble for streaming
-            self.current_ai_bubble = MessageBubble(is_user=False)
-            self.current_ai_bubble.set_content("", datetime.now().strftime("%H:%M:%S"))
-            self.chat_layout.insertWidget(self.chat_layout.count() - 1, self.current_ai_bubble)
-            self.message_bubbles.append(self.current_ai_bubble)
-            
-        # Append token to current bubble
-        self.current_ai_bubble.append_content(token)
-        
         # Scroll to bottom
         self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
@@ -1011,11 +1493,6 @@ class ChatBotWindow(QMainWindow):
             # Clear all message bubbles
             while self.chat_layout.count() > 1:  # Keep the stretch at the end
                 item = self.chat_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            self.message_bubbles.clear()
-            self.db.clear_history()
-
     def load_chat_history(self):
         """Load chat history from database"""
         # Clear existing messages
@@ -1035,10 +1512,17 @@ class ChatBotWindow(QMainWindow):
             
             # Create AI response bubble
             ai_bubble = MessageBubble(is_user=False)
-            ai_bubble.set_content(self.format_response(ai_resp), timestamp)
+            if ai_resp is not None:
+                ai_bubble.set_content(self.format_response(ai_resp), timestamp)
+            else:
+                ai_bubble.set_content("No response received.", timestamp)
             self.chat_layout.insertWidget(self.chat_layout.count() - 1, ai_bubble)
             
             self.message_bubbles.extend([user_bubble, ai_bubble])
+            
+        # Update the history list if we're in the history tab
+        if self.tabs.currentWidget() == self.history_tab:
+            self.update_history_list()
 
     def closeEvent(self, event):
         self.hide()
@@ -1052,40 +1536,53 @@ class ChatBotWindow(QMainWindow):
 
     def start_voice_input(self):
         """Open voice input dialog and add transcribed text to input box"""
-        dialog = VoiceInputDialog(self)
-        if dialog.exec():
-            transcribed_text = dialog.get_text()
-            if transcribed_text:
-                current_text = self.input_box.toPlainText()
-                if (current_text):
-                    self.input_box.setPlainText(f"{current_text}\n{transcribed_text}")
-                else:
-                    self.input_box.setPlainText(transcribed_text)
-                self.input_box.setFocus()
+        try:
+            dialog = VoiceInputDialog(self)
+            if dialog.exec():
+                transcribed_text = dialog.get_text()
+                if transcribed_text and transcribed_text.strip():
+                    current_text = self.input_box.toPlainText().strip()
+                    if current_text:
+                        self.input_box.setPlainText(f"{current_text}\n{transcribed_text}")
+                    else:
+                        self.input_box.setPlainText(transcribed_text)
+                    self.input_box.setFocus()
+        except Exception as e:
+            self.update_status(f"Voice input error: {str(e)}")
     
     def attach_file(self):
         """Allow the user to attach a file to the conversation"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Attach File", "", "All Files (*.*)")
-        
-        if file_path:
-            file_name = os.path.basename(file_path)
-            # Add file reference to the input box
-            current_text = self.input_box.toPlainText()
-            file_text = f"\n[Attached file: {file_name}]\n"
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Attach File", "", "All Files (*.*)")
             
-            if current_text:
-                self.input_box.setPlainText(current_text + file_text)
-            else:
-                self.input_box.setPlainText(file_text)
+            if file_path and os.path.exists(file_path):
+                file_size = os.path.getsize(file_path)
+                max_size = 10 * 1024 * 1024  # 10MB limit
                 
-            # Add file to the files list
-            self.files_list.addItem(file_name)
-            
-            # Store file path for later use
-            if not hasattr(self, 'attached_files'):
-                self.attached_files = {}
-            self.attached_files[file_name] = file_path
+                if file_size > max_size:
+                    QMessageBox.warning(self, "File Too Large", 
+                                      "File size exceeds 10MB limit.")
+                    return
+                    
+                file_name = os.path.basename(file_path)
+                current_text = self.input_box.toPlainText()
+                file_text = f"\n[Attached file: {file_name}]\n"
+                
+                self.input_box.setPlainText(current_text + file_text if current_text else file_text)
+                
+                # Add file to the files list if not already present
+                existing_items = [self.files_list.item(i).text() for i in range(self.files_list.count())]
+                if file_name not in existing_items:
+                    self.files_list.addItem(file_name)
+                
+                # Initialize attached_files if needed
+                if not hasattr(self, 'attached_files'):
+                    self.attached_files = {}
+                self.attached_files[file_name] = file_path
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to attach file: {str(e)}")
     
     def open_settings(self):
         """Open the settings dialog"""
@@ -1105,28 +1602,52 @@ class ChatBotWindow(QMainWindow):
             new_model = self.settings.get('default_model')
             if new_model != self.current_model:
                 self.current_model = new_model
-                self.model_combo.setCurrentText(new_model)
-                self.llm = OllamaLLM(model=new_model)
-                
-            # Update streaming setting
-            self.streaming_enabled = self.settings.get('streaming', True)
+    def update_history_list(self):
+        """Update the history list with conversations from the current session"""
+        try:
+            self.history_list.clear()
+            conversations = self.db.get_recent_conversations(self.current_session)
             
-            # Update UI
-            self.update_status("Settings updated")
-    
+            for conv in conversations:
+                id, timestamp, model, user_msg, ai_resp, session = conv
+                item = QListWidgetItem()
+                # Show more detailed preview
+                preview = f"[{timestamp}] {model}\nUser: {user_msg[:50]}..."
+                if ai_resp:
+                    preview += f"\nAI: {ai_resp[:50]}..."
+                item.setText(preview)
+                item.setData(Qt.ItemDataRole.UserRole, id)
+                self.history_list.addItem(item)
+        except Exception as e:
+            self.update_status(f"Error updating history list: {str(e)}")
+
     def load_history_item(self, item):
-        """Load a selected history item into the chat"""
-        text = item.text()
-        self.input_box.setPlainText(text)
-    
-    def toggle_streaming(self, enabled):
-        """Toggle streaming responses on/off"""
-        self.streaming_enabled = enabled
-        self.settings['streaming'] = enabled
-        self.save_settings()
+        """Load a selected history item from history into the chat"""
+        try:
+            conversation_id = item.data(Qt.ItemDataRole.UserRole)
+            cursor = self.db.conn.cursor()
+            cursor.execute('SELECT user_message FROM conversations WHERE id = ?', (conversation_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                user_message = result[0]
+                self.input_box.setPlainText(user_message)
+        except Exception as e:
+            self.update_status(f"Error loading history item: {str(e)}")
+            
+    def clear_history(self):
+        """Clear all conversations from history"""
+        reply = QMessageBox.question(self, 'Clear History', 
+                                   'Are you sure you want to clear all chat history?',
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         
-        status = "enabled" if enabled else "disabled"
-        self.update_status(f"Streaming responses {status}")
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.db.clear_history()
+                self.history_list.clear()
+                self.update_status("Chat history cleared successfully")
+            except Exception as e:
+                self.update_status(f"Error clearing history: {str(e)}")
 
 def main():
     app = QApplication(sys.argv)
