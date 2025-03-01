@@ -14,9 +14,9 @@ from pygments import highlight
 from pygments.lexers import get_lexer_by_name
 from pygments.formatters import HtmlFormatter
 from langchain_ollama import OllamaLLM
-from database import ChatDatabase
-from settings_dialog import SettingsDialog
-from icon_manager import IconManager
+from model.database import ChatDatabase
+from app.settings_dialog import SettingsDialog
+from app.icon_manager import IconManager
 import os  # Add this import at the top
 
 class AIResponseThread(QThread):

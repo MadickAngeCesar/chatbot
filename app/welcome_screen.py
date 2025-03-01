@@ -1,7 +1,7 @@
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                           QPushButton, QWizard, QWizardPage, QComboBox,
+from PyQt6.QtWidgets import (QVBoxLayout, QLabel, 
+                           QWizard, QWizardPage, QComboBox,
                            QCheckBox, QLineEdit)
-from PyQt6.QtGui import QPixmap, QFont
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 
 class WelcomeScreen(QWizard):

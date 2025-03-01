@@ -1,9 +1,9 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QDialog
-from chatbot import ChatBotWindow
-from splash_screen import SplashScreen
-from icon_manager import IconManager
-from welcome_screen import WelcomeScreen
+from app.chatbot import ChatBotWindow
+from app.splash_screen import SplashScreen
+from app.icon_manager import IconManager
+from app.welcome_screen import WelcomeScreen
 from PyQt6.QtCore import QTimer
 
 def main():

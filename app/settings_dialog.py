@@ -1,8 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, 
-                           QLabel, QLineEdit, QComboBox, QCheckBox, 
+                           QLineEdit, QComboBox, QCheckBox, 
                            QPushButton, QSpinBox, QTextEdit, QGroupBox,
                            QFormLayout)
-from PyQt6.QtCore import Qt
 import json
 import os
 

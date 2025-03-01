@@ -1,5 +1,4 @@
-from PyQt6.QtGui import QPalette, QColor, QBrush
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPalette, QColor
 
 class ThemeManager:
     @staticmethod
