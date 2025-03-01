@@ -1,7 +1,6 @@
 import sys
 from PyQt6.QtWidgets import QApplication, QDialog
 from app.chatbot import ChatBotWindow
-from app.splash_screen import SplashScreen
 from app.icon_manager import IconManager
 from app.welcome_screen import WelcomeScreen
 from PyQt6.QtCore import QTimer
@@ -13,15 +12,8 @@ def main():
     # Ensure icon directory exists
     IconManager.ensure_icon_directory()
     
-    # Show splash screen
-    splash = SplashScreen()
-    splash.show()
-    # Close splash after 2 seconds
-    QTimer.singleShot(2000, splash.close)
-    
     # Run setup wizard
     wizard = WelcomeScreen()
-    user_settings = {}
     if wizard.exec() == QDialog.DialogCode.Accepted:
         user_settings = wizard.get_settings()
     

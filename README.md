@@ -31,7 +31,7 @@ pip install -r requirements.txt
 
 3. Make sure you have Ollama installed and running:
    - Download from [ollama.ai](https://ollama.ai)
-   - Pull models: `ollama pull llama3.2:1b mistral:7b llama2:13b`
+   - Pull models: `ollama pull llama3.2:1b mistral:7b`
 
 ## Usage
 

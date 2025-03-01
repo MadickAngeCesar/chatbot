@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QHBoxLayout, QTextEdit, QPushButton, QScrollArea,
                            QComboBox, QLabel, QMessageBox, QStatusBar, QFileDialog,
                            QProgressBar, QSystemTrayIcon, QMenu, QLineEdit, QInputDialog,
-                           QSplitter, QTabWidget, QFrame, QToolButton, QListWidget, QCheckBox, QDialog)
+                           QSplitter, QTabWidget, QFrame, QToolButton, QListWidget, QDialog)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QKeySequence, QShortcut
 import sys
@@ -17,36 +17,21 @@ from langchain_ollama import OllamaLLM
 from model.database import ChatDatabase
 from app.settings_dialog import SettingsDialog
 from app.icon_manager import IconManager
-import os  # Add this import at the top
+import os
 
 class AIResponseThread(QThread):
     response_ready = pyqtSignal(str)
     error_occurred = pyqtSignal(str)
-    token_received = pyqtSignal(str)  # For streaming responses
 
-    def __init__(self, llm, prompt, streaming=True):
+    def __init__(self, llm, prompt):
         super().__init__() 
         self.llm = llm
         self.prompt = prompt
-        self.streaming = streaming
 
     def run(self):
         try:
-            if self.streaming:
-                full_response = ""
-                for chunk in self.llm.stream(self.prompt):
-                    if isinstance(chunk, str):
-                        full_response += chunk
-                        self.token_received.emit(chunk)
-                    else:
-                        # Handle different streaming format if needed
-                        token = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                        full_response += token
-                        self.token_received.emit(token)
-                self.response_ready.emit(full_response)
-            else:
-                response = self.llm.invoke(self.prompt)
-                self.response_ready.emit(response)
+            response = self.llm.invoke(self.prompt)
+            self.response_ready.emit(response)
         except Exception as e:
             self.error_occurred.emit(str(e))
 
@@ -83,15 +68,15 @@ class MessageBubble(QFrame):
             """)
             
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(15, 10, 15, 10)
+        self.layout.setContentsMargins(7, 4, 7, 4)
         
         # Header with timestamp and sender
         header_layout = QHBoxLayout()
-        self.sender_label = QLabel("You" if self.is_user else "AI")
+        self.sender_label = QLabel(ChatBotWindow().settings.get('user_name', 'You') if self.is_user else "AI")
         self.sender_label.setStyleSheet(f"color: {'#ffffff' if self.is_user else '#4fc3f7'}; font-weight: bold;")
         
         self.time_label = QLabel()
-        self.time_label.setStyleSheet("color: #bbbbbb; font-size: 10px;")
+        self.time_label.setStyleSheet("color: #bbbbbb; font-size: 12px;")
         
         header_layout.addWidget(self.sender_label)
         header_layout.addStretch()
@@ -278,7 +263,6 @@ class ChatBotWindow(QMainWindow):
         self.current_theme = self.settings.get('theme', "dark")
         self.current_session = "Default"
         self.sessions = ["Default"]
-        self.streaming_enabled = self.settings.get('streaming', True)
         
         # Message bubbles container
         self.message_bubbles = []
@@ -369,7 +353,7 @@ class ChatBotWindow(QMainWindow):
         # Create sidebar
         self.sidebar = QWidget()
         sidebar_layout = QVBoxLayout(self.sidebar)
-        sidebar_layout.setContentsMargins(10, 15, 10, 10)
+        sidebar_layout.setContentsMargins(5, 8, 5, 5)
         
         # Logo at the top of sidebar
         logo_label = QLabel("Madick AI")
@@ -380,18 +364,23 @@ class ChatBotWindow(QMainWindow):
         self.chat_nav_btn = QPushButton(" Chat")
         self.chat_nav_btn.setIcon(IconManager.get_icon("chat"))
         self.chat_nav_btn.setStyleSheet(self.get_sidebar_button_style(True))
+        self.chat_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.chat_tab))
         
         self.templates_nav_btn = QPushButton(" Templates")
         self.templates_nav_btn.setIcon(IconManager.get_icon("template"))
         self.templates_nav_btn.setStyleSheet(self.get_sidebar_button_style())
+        self.templates_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.templates_tab))
         
         self.history_nav_btn = QPushButton(" History")
         self.history_nav_btn.setIcon(IconManager.get_icon("history"))
         self.history_nav_btn.setStyleSheet(self.get_sidebar_button_style())
+        self.history_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.history_tab))
         
         self.files_nav_btn = QPushButton(" Files")
         self.files_nav_btn.setIcon(IconManager.get_icon("file"))
         self.files_nav_btn.setStyleSheet(self.get_sidebar_button_style())
+        self.files_nav_btn.clicked.connect(lambda: self.tabs.setCurrentWidget(self.files_tab))
+        
         
         sidebar_layout.addWidget(self.chat_nav_btn)
         sidebar_layout.addWidget(self.templates_nav_btn)
@@ -552,10 +541,10 @@ class ChatBotWindow(QMainWindow):
         formatting_layout.addWidget(self.template_combo)
         formatting_layout.addStretch()
         
-        streaming_check = QCheckBox("Streaming Responses")
-        streaming_check.setChecked(self.streaming_enabled)
-        streaming_check.toggled.connect(self.toggle_streaming)
-        formatting_layout.addWidget(streaming_check)
+        #streaming_check = QCheckBox("Streaming Responses")
+        #streaming_check.setChecked(self.streaming_enabled)
+        #streaming_check.toggled.connect(self.toggle_streaming)
+        #formatting_layout.addWidget(streaming_check)
         
         input_layout.addLayout(formatting_layout)
         
@@ -774,15 +763,41 @@ class ChatBotWindow(QMainWindow):
             QMainWindow { background-color: #1e1e1e; }
             QWidget { background-color: #1e1e1e; }
         """)
-        # Add more dark theme styles...
 
     def set_light_theme(self):
         self.current_theme = "light"
         self.setStyleSheet("""
             QMainWindow { background-color: #f5f5f5; }
-            QWidget { background-color: #f5f5f5; }
+            QWidget { background-color: #f5f5f5; color: #2c3e50; }
+            QLabel { color: #2c3e50; }
+            QPushButton { 
+                background-color: #e0e0e0; 
+                color: #2c3e50;
+                border: 1px solid #bdbdbd;
+            }
+            QPushButton:hover {
+                background-color: #d5d5d5;
+            }
+            QTextEdit {
+                background-color: white;
+                color: #2c3e50;
+                border: 1px solid #bdbdbd;
+            }
+            QComboBox {
+                background-color: white;
+                color: #2c3e50;
+                border: 1px solid #bdbdbd;
+            }
+            QListWidget {
+                background-color: white;
+                color: #2c3e50;
+                border: 1px solid #bdbdbd;
+            }
+            QStatusBar {
+                background-color: #e0e0e0;
+                color: #2c3e50;
+            }
         """)
-        # Add more light theme styles...
 
     def create_new_session(self):
         name, ok = QInputDialog.getText(self, "New Session", "Enter session name:")
@@ -791,7 +806,6 @@ class ChatBotWindow(QMainWindow):
             self.session_combo.addItem(name)
             self.session_combo.setCurrentText(name)
             self.current_session = name
-            self.chat_area.clear()
 
     def change_session(self, session_name):
         self.current_session = session_name
@@ -843,12 +857,10 @@ class ChatBotWindow(QMainWindow):
         self.current_user_message = user_message
         
         # Create and start response thread
-        self.response_thread = AIResponseThread(self.llm, user_message, self.streaming_enabled)
+        self.response_thread = AIResponseThread(self.llm, user_message)
         self.response_thread.response_ready.connect(self.handle_ai_response)
         self.response_thread.error_occurred.connect(self.handle_ai_error)
         self.response_thread.finished.connect(self.on_response_complete)
-        if self.streaming_enabled:
-            self.response_thread.token_received.connect(self.handle_token)
         self.response_thread.start()
         
         self.input_box.clear()
@@ -861,19 +873,35 @@ class ChatBotWindow(QMainWindow):
     def handle_ai_response(self, response):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
-        if not self.streaming_enabled:
-            # Create new AI response bubble
-            ai_bubble = MessageBubble(is_user=False)
-            ai_bubble.set_content(self.format_response(response), timestamp)
-            self.chat_layout.insertWidget(self.chat_layout.count() - 1, ai_bubble)
-            self.message_bubbles.append(ai_bubble)
-            
+        # Create new AI response bubble
+        ai_bubble = MessageBubble(is_user=False)
+        ai_bubble.set_content(self.format_response(response), timestamp)
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, ai_bubble)
+        self.message_bubbles.append(ai_bubble)         
+
         self.db.save_conversation(self.current_model, self.current_user_message, response, self.current_session)
         
         # Scroll to bottom
         self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
         )
+
+        def handle_token(self, token):
+            """Handle streaming tokens"""
+            if not hasattr(self, 'current_ai_bubble'):
+                # Create new AI response bubble for streaming
+                self.current_ai_bubble = MessageBubble(is_user=False)
+                self.current_ai_bubble.set_content("", datetime.now().strftime("%H:%M:%S"))
+                self.chat_layout.insertWidget(self.chat_layout.count() - 1, self.current_ai_bubble)
+                self.message_bubbles.append(self.current_ai_bubble)
+                
+            # Append token to current bubble
+            self.current_ai_bubble.append_content(token)
+            
+            # Scroll to bottom
+            self.scroll_area.verticalScrollBar().setValue(
+                self.scroll_area.verticalScrollBar().maximum()
+            )
 
     def handle_token(self, token):
         """Handle streaming tokens"""
@@ -1089,9 +1117,6 @@ class ChatBotWindow(QMainWindow):
     def load_history_item(self, item):
         """Load a selected history item into the chat"""
         text = item.text()
-        # Extract the conversation details
-        # This would depend on how you're displaying history items
-        # For now, just add the text to the input box
         self.input_box.setPlainText(text)
     
     def toggle_streaming(self, enabled):
