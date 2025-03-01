@@ -1,0 +1,3 @@
+@echo off
+echo Starting Madick AI Chatbot...
+python main.py
