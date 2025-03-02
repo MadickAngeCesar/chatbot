@@ -40,5 +40,11 @@
     "description": "find bmi",
     "category": "analysis",
     "created": "2025-03-02T02:54:06.219632"
+  },
+  "Cooking recipe": {
+    "prompt": "\"Guide my AI-powered kitchen assistant to prepare {dish name}, a {vegetarian/non-vegetarian} dish with {number} servings, using ingredients listed below. Please consider the following parameters:\nCuisine: { specify cuisine or region}\nDietary preference: { vegan/gluten-free/no dietary restrictions}\nCooking method: { roast/steak/saut\u00e9/bake/any etc.}\nIngredients:\n{List ingredients with quantities and unit conversions (e.g., cups, grams)}\nAdditional notes:\n{Any specific cooking techniques or tips you'd like to include}\nDesired level of doneness:\n{list desired level of doneness for each ingredient, e.g., rare, medium-rare, well-done}\nPlease provide the recipe and any relevant cooking guidance to ensure a successful outcome.\"",
+    "description": "Generate a cooking recipe by feeling the template",
+    "category": "development",
+    "created": "2025-03-02T08:03:10.802324"
   }
 }

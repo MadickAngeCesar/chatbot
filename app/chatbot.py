@@ -2090,20 +2090,15 @@ class ChatBotWindow(QMainWindow):
         
         # Update other elements in the chat tab
         for btn in self.chat_tab.findChildren(QPushButton):
-            if "clear" in btn.text().lower():
+            if "🗑️" in btn.text():
                 btn.setText(translator.tr('clear'))
-            elif "export" in btn.text().lower():
+            elif "📤" in btn.text():
                 btn.setText(translator.tr('export'))
         
         # Update input area
-        template_label = None
         for label in self.chat_tab.findChildren(QLabel):
-            if label.text().startswith("Template"):
-                template_label = label
-                break
-        
-        if template_label:
-            template_label.setText(translator.tr('template'))
+            if "Template" in label.text():
+                label.setText(translator.tr('template'))
         
         self.send_button.setText(translator.tr('send'))
         
