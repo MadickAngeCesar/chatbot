@@ -164,15 +164,15 @@ class MessageBubble(QFrame):
         buttons = []
         
         if self.is_user:
-            edit_btn = self._create_action_button("edit", "Edit message", self._handle_edit)
+            edit_btn = self._create_action_button("✏️", "Edit message", self._handle_edit)
             buttons.append(edit_btn)
             
-        copy_btn = self._create_action_button("copy", "Copy to clipboard", self._handle_copy)
+        copy_btn = self._create_action_button("📋", "Copy to clipboard", self._handle_copy)
         buttons.append(copy_btn)
         
         if not self.is_user:
-            speak_btn = self._create_action_button("speak", "Read aloud", self._handle_speak)
-            save_btn = self._create_action_button("bookmark", "Save response", self._handle_save)
+            speak_btn = self._create_action_button("🔊", "Read aloud", self._handle_speak)
+            save_btn = self._create_action_button("🔖", "Save response", self._handle_save)
             buttons.extend([speak_btn, save_btn])
         
         for btn in buttons:
@@ -181,12 +181,11 @@ class MessageBubble(QFrame):
         actions_layout.addStretch()
         self.layout.addLayout(actions_layout)
         
-    def _create_action_button(self, icon_name, tooltip, callback):
-        """Create an action button with specified parameters."""
+    def _create_action_button(self, emoji, tooltip, callback):
+        """Create an action button with emoji instead of icon."""
         btn = QToolButton()
-        btn.setIcon(IconManager.get_icon(icon_name))
+        btn.setText(emoji)
         btn.setToolTip(tooltip)
-        btn.setIconSize(QSize(16, 16))
         btn.setFixedSize(24, 24)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.clicked.connect(callback)
@@ -783,18 +782,14 @@ class ChatBotWindow(QMainWindow):
             }
         """
         
-        self.chat_nav_btn = QPushButton(" Chat")
-        self.chat_nav_btn.setIcon(IconManager.get_icon("chat"))
+        self.chat_nav_btn = QPushButton(" 💬 Chat")
         self.chat_nav_btn.setProperty("active", True)
         
-        self.templates_nav_btn = QPushButton(" Templates")
-        self.templates_nav_btn.setIcon(IconManager.get_icon("template"))
+        self.templates_nav_btn = QPushButton(" 📋 Templates")
         
-        self.history_nav_btn = QPushButton(" History")
-        self.history_nav_btn.setIcon(IconManager.get_icon("history"))
+        self.history_nav_btn = QPushButton(" 📚 History")
         
-        self.files_nav_btn = QPushButton(" Files")
-        self.files_nav_btn.setIcon(IconManager.get_icon("file"))
+        self.files_nav_btn = QPushButton(" 📁 Files")
         
         for btn in [self.chat_nav_btn, self.templates_nav_btn, 
                    self.history_nav_btn, self.files_nav_btn]:
@@ -810,8 +805,7 @@ class ChatBotWindow(QMainWindow):
         sidebar_layout.addStretch()
         
         # Enhanced settings button
-        self.settings_btn = QPushButton(" Settings")
-        self.settings_btn.setIcon(IconManager.get_icon("settings"))
+        self.settings_btn = QPushButton(" ⚙️ Settings")
         self.settings_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2b2b2b;
@@ -893,7 +887,7 @@ class ChatBotWindow(QMainWindow):
         self.session_combo.currentTextChanged.connect(self.change_session)
         
         new_session_btn = QToolButton()
-        new_session_btn.setIcon(IconManager.get_icon("plus"))
+        new_session_btn.setText("➕")
         new_session_btn.setToolTip("New Session")
         new_session_btn.clicked.connect(self.create_new_session)
         
@@ -902,14 +896,12 @@ class ChatBotWindow(QMainWindow):
         model_layout.addWidget(new_session_btn)
         
         # Add buttons to model layout
-        clear_btn = QPushButton("Clear")
-        clear_btn.setIcon(IconManager.get_icon("trash"))
+        clear_btn = QPushButton("🗑️ Clear")
         clear_btn.setStyleSheet(self.get_button_style("#d32f2f"))
         clear_btn.clicked.connect(self.clear_chat)
         model_layout.addWidget(clear_btn)
         
-        export_btn = QPushButton("Export")
-        export_btn.setIcon(IconManager.get_icon("export"))
+        export_btn = QPushButton("📤 Export")
         export_btn.setStyleSheet(self.get_button_style("#2196F3"))
         export_btn.clicked.connect(self.export_chat)
         model_layout.addWidget(export_btn)
@@ -960,12 +952,12 @@ class ChatBotWindow(QMainWindow):
         formatting_layout = QHBoxLayout()
         
         file_btn = QToolButton()
-        file_btn.setIcon(IconManager.get_icon("attachment"))
+        file_btn.setText("📎")
         file_btn.setToolTip("Attach File")
         file_btn.clicked.connect(self.attach_file)
         
         voice_btn = QToolButton()
-        voice_btn.setIcon(IconManager.get_icon("microphone"))
+        voice_btn.setText("🎤")
         voice_btn.setToolTip("Voice Input (Ctrl+Shift+V)")
         voice_btn.clicked.connect(self.start_voice_input)
         
@@ -1002,8 +994,7 @@ class ChatBotWindow(QMainWindow):
             }
         """)
         
-        self.send_button = QPushButton("Send")
-        self.send_button.setIcon(IconManager.get_icon("send"))
+        self.send_button = QPushButton("📩 Send")
         self.send_button.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
@@ -1100,16 +1091,13 @@ class ChatBotWindow(QMainWindow):
         # Controls for history management
         controls_layout = QHBoxLayout()
         
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.setIcon(IconManager.get_icon("refresh"))
+        refresh_btn = QPushButton("🔄 Refresh")
         refresh_btn.clicked.connect(self.load_chat_history)
         
-        clear_history_btn = QPushButton("Clear History")
-        clear_history_btn.setIcon(IconManager.get_icon("trash"))
+        clear_history_btn = QPushButton("🗑️ Clear History")
         clear_history_btn.clicked.connect(self.clear_history)
         
-        export_history_btn = QPushButton("Export")
-        export_history_btn.setIcon(IconManager.get_icon("export"))
+        export_history_btn = QPushButton("📤 Export")
         export_history_btn.clicked.connect(self.export_chat)
         
         controls_layout.addWidget(refresh_btn)
@@ -1126,7 +1114,7 @@ class ChatBotWindow(QMainWindow):
         self.files_list = QListWidget()
         files_layout.addWidget(self.files_list)
         
-        upload_btn = QPushButton("Upload File")
+        upload_btn = QPushButton("📎 Upload File")
         upload_btn.clicked.connect(self.attach_file)
         files_layout.addWidget(upload_btn)
         
@@ -1149,7 +1137,6 @@ class ChatBotWindow(QMainWindow):
         self.splitter.setSizes([250, 750])  # Slightly wider sidebar
         
         main_layout.addWidget(self.splitter)
-        
     def switch_tab(self, index):
         # Update active state of navigation buttons
         for i, btn in enumerate([self.chat_nav_btn, self.templates_nav_btn, 
@@ -1493,6 +1480,7 @@ class ChatBotWindow(QMainWindow):
             # Clear all message bubbles
             while self.chat_layout.count() > 1:  # Keep the stretch at the end
                 item = self.chat_layout.takeAt(0)
+    
     def load_chat_history(self):
         """Load chat history from database"""
         # Clear existing messages
@@ -1602,6 +1590,7 @@ class ChatBotWindow(QMainWindow):
             new_model = self.settings.get('default_model')
             if new_model != self.current_model:
                 self.current_model = new_model
+    
     def update_history_list(self):
         """Update the history list with conversations from the current session"""
         try:
