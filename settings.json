@@ -8,5 +8,6 @@
     "font_size": 16,
     "api_url": "http://localhost:11434",
     "temperature": 70,
-    "user_name": "Madick Ange C\u00e9sar"
+    "user_name": "Madick Ange C\u00e9sar",
+    "language": "fr"
 }

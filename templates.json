@@ -1,0 +1,44 @@
+{
+  "Code Explanation": {
+    "prompt": "Explain this code in detail:\n```\n{input}\n```",
+    "description": "Get a detailed explanation of code",
+    "category": "development",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "Summarize": {
+    "prompt": "Please summarize the following text:\n\n{input}",
+    "description": "Create a concise summary of text",
+    "category": "writing",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "Translate": {
+    "prompt": "Translate the following text to {language}:\n\n{input}",
+    "description": "Translate text to another language",
+    "category": "language",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "Pros and Cons": {
+    "prompt": "List the pros and cons of {input}",
+    "description": "Analyze advantages and disadvantages",
+    "category": "analysis",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "Writing Assistant": {
+    "prompt": "Help me write {input}",
+    "description": "Get assistance with writing",
+    "category": "writing",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "Data Analysis": {
+    "prompt": "Analyze this dataset and provide insights:\n\n{input}",
+    "description": "Get insights from data",
+    "category": "analysis",
+    "created": "2025-03-02T02:51:32.147848"
+  },
+  "testy": {
+    "prompt": "bmi from {weight} and heigt {height}",
+    "description": "find bmi",
+    "category": "analysis",
+    "created": "2025-03-02T02:54:06.219632"
+  }
+}

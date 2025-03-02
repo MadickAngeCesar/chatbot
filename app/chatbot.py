@@ -19,6 +19,229 @@ from model.database import ChatDatabase
 from app.settings_dialog import SettingsDialog
 from app.icon_manager import IconManager
 import os
+from PyQt6.QtGui import QPixmap, QPainter, QFont, QIcon
+from app.templates_manager import TemplateManager
+
+class Translator:
+    """
+    A translator class to enable multilingual support in the chatbot application.
+    Manages translations between English and French.
+    """
+    
+    def __init__(self):
+        """Initialize the translator with English and French translations."""
+        self.translations = {
+            'en': {
+                'window_title': 'Madick Chatbot',
+                'ready': 'Ready',
+                'error': 'Error',
+                'warning': 'Warning',
+                'info': 'Information',
+                'success': 'Success',
+                'chat': '💬 Chat',
+                'templates': '📋 Templates',
+                'history': '📚 History',
+                'files': '📁 Files',
+                'settings': '⚙️ Settings',
+                'model': 'Model:',
+                'session': 'Session:',
+                'clear': '🗑️ Clear',
+                'export': '📤 Export',
+                'start_recording': 'Start Recording',
+                'stop_recording': 'Stop Recording',
+                'template': 'Template:',
+                'send': '📩 Send',
+                'you': 'You',
+                'ai': 'AI',
+                'available_templates': 'Available Templates',
+                'none': 'None',
+                'custom': 'Custom...',
+                'new_template': 'New Template',
+                'template_name': 'Template Name:',
+                'template_prompt': 'Enter the template prompt (use {input} for user input):',
+                'template_description': 'Enter a short description:',
+                'template_category': 'Select or enter a category:',
+                'search_placeholder': 'Search in chat history...',
+                'refresh': '🔄 Refresh',
+                'clear_history': '🗑️ Clear History',
+                'user': 'User',
+                'uploaded_files': 'Uploaded Files',
+                'upload_file': '📎 Upload File',
+                'attach_file': '📎 Attach File',
+                'file_attached': 'File Attached',
+                'binary_file': 'Binary File',
+                'file_too_large': 'File Too Large',
+                'invalid_json': 'Invalid JSON',
+                'binary_file_detected': 'Binary File Detected',
+                'error_reading_file': 'Error Reading File',
+                'voice_input': 'Voice Input',
+                'recording_start_prompt': 'Press Start to begin recording...',
+                'initializing_mic': 'Initializing microphone...',
+                'listening': 'Listening...',
+                'processing_speech': 'Processing speech...',
+                'recording_stopped': 'Recording stopped',
+                'recording_success': 'Recording successful!',
+                'cancel': 'Cancel',
+                'message_copied': 'Message copied to clipboard',
+                'message_edit_ready': 'Message ready for editing',
+                'tts_future': 'This feature will be implemented in a future update.',
+                'response_saved_db': 'Response saved to history',
+                'response_saved_file': 'Response saved to {filename}',
+                'error_saving_db': 'Error saving to database: {error}',
+                'error_saving_file': 'Error saving file: {error}',
+                'switched_model': 'Switched to {model} model',
+                'switched_session': 'Switched to session: {session}',
+                'clear_chat_confirm': 'Are you sure you want to clear the chat history?',
+                'clear_history_confirm': 'Are you sure you want to clear all chat history?',
+                'history_cleared': 'Chat history cleared successfully',
+                'error_history': 'Error clearing history: {error}',
+                'minimized': 'ChatBot Minimized',
+                'still_running': 'Application is still running in the system tray.',
+                'voice_error': 'Voice input error: {error}',
+                'new_session': 'New Session',
+                'session_name': 'Enter session name:',
+                'session_exists': 'Session name already exists!',
+                'delete_template': 'Delete Template',
+                'delete_template_confirm': 'Are you sure you want to delete the template \'{name}\'?',
+                'template_deleted': 'Template \'{name}\' deleted successfully',
+                'template_created': 'Template \'{name}\' created successfully',
+                'error_template': 'Error {action} template: {error}',
+                'content_of_file': 'Content of {filename}:',
+                'send_file_confirm': 'Do you want to send the contents of {filename} to the AI?',
+                'file_content_added': 'File content added to input',
+                'binary_file_info': '{filename} is a binary file. Only the file reference will be added.',
+                'attached_file': '[Attached file: {filename}]',
+                'file_attached_status': 'File \'{filename}\' attached',
+                'no_mic': 'No microphone detected',
+                'speech_not_understood': 'Could not understand audio. Please speak more clearly',
+                'service_error': 'Service error: {error}',
+                'recording_error': 'Recording error: {error}',
+            },
+            'fr': {
+                'window_title': 'Madick Chatbot',
+                'ready': 'Prêt',
+                'error': 'Erreur',
+                'warning': 'Avertissement',
+                'info': 'Information',
+                'success': 'Succès',
+                'chat': '💬 Discuter',
+                'templates': '📋 Modèles',
+                'history': '📚 Historique',
+                'files': '📁 Fichiers',
+                'settings': '⚙️ Paramètres',
+                'model': 'Modèle:',
+                'session': 'Session:',
+                'clear': '🗑️ Effacer',
+                'export': '📤 Exporter',
+                'start_recording': 'Commencer l\'enregistrement',
+                'stop_recording': 'Arrêter l\'enregistrement',
+                'template': 'Modèle:',
+                'send': '📩 Envoyer',
+                'you': 'Vous',
+                'ai': 'IA',
+                'available_templates': 'Modèles disponibles',
+                'none': 'Aucun',
+                'custom': 'Personnalisé...',
+                'new_template': 'Nouveau modèle',
+                'template_name': 'Nom du modèle:',
+                'template_prompt': 'Entrez le modèle (utilisez {input} pour l\'entrée utilisateur):',
+                'template_description': 'Entrez une courte description:',
+                'template_category': 'Sélectionnez ou entrez une catégorie:',
+                'search_placeholder': 'Rechercher dans l\'historique...',
+                'refresh': '🔄 Rafraîchir',
+                'clear_history': '🗑️ Effacer l\'historique',
+                'user': 'Utilisateur',
+                'uploaded_files': 'Fichiers téléchargés',
+                'upload_file': '📎 Télécharger un fichier',
+                'attach_file': '📎 Joindre un fichier',
+                'file_attached': 'Fichier joint',
+                'binary_file': 'Fichier binaire',
+                'file_too_large': 'Fichier trop volumineux',
+                'invalid_json': 'JSON invalide',
+                'binary_file_detected': 'Fichier binaire détecté',
+                'error_reading_file': 'Erreur de lecture du fichier',
+                'voice_input': 'Entrée vocale',
+                'recording_start_prompt': 'Appuyez sur Démarrer pour commencer l\'enregistrement...',
+                'initializing_mic': 'Initialisation du microphone...',
+                'listening': 'Écoute en cours...',
+                'processing_speech': 'Traitement de la parole...',
+                'recording_stopped': 'Enregistrement arrêté',
+                'recording_success': 'Enregistrement réussi!',
+                'cancel': 'Annuler',
+                'message_copied': 'Message copié dans le presse-papiers',
+                'message_edit_ready': 'Message prêt pour l\'édition',
+                'tts_future': 'Cette fonctionnalité sera implémentée dans une future mise à jour.',
+                'response_saved_db': 'Réponse sauvegardée dans l\'historique',
+                'response_saved_file': 'Réponse sauvegardée dans {filename}',
+                'error_saving_db': 'Erreur lors de la sauvegarde dans la base de données: {error}',
+                'error_saving_file': 'Erreur lors de la sauvegarde du fichier: {error}',
+                'switched_model': 'Passage au modèle {model}',
+                'switched_session': 'Session changée: {session}',
+                'clear_chat_confirm': 'Êtes-vous sûr de vouloir effacer l\'historique de discussion?',
+                'clear_history_confirm': 'Êtes-vous sûr de vouloir effacer tout l\'historique de discussion?',
+                'history_cleared': 'Historique de discussion effacé avec succès',
+                'error_history': 'Erreur lors de l\'effacement de l\'historique: {error}',
+                'minimized': 'ChatBot Minimisé',
+                'still_running': 'L\'application est toujours en cours d\'exécution dans la barre d\'état système.',
+                'voice_error': 'Erreur d\'entrée vocale: {error}',
+                'new_session': 'Nouvelle Session',
+                'session_name': 'Entrez le nom de la session:',
+                'session_exists': 'Le nom de la session existe déjà!',
+                'delete_template': 'Supprimer le modèle',
+                'delete_template_confirm': 'Êtes-vous sûr de vouloir supprimer le modèle \'{name}\'?',
+                'template_deleted': 'Modèle \'{name}\' supprimé avec succès',
+                'template_created': 'Modèle \'{name}\' créé avec succès',
+                'error_template': 'Erreur lors {action} du modèle: {error}',
+                'content_of_file': 'Contenu du fichier {filename}:',
+                'send_file_confirm': 'Voulez-vous envoyer le contenu de {filename} à l\'IA?',
+                'file_content_added': 'Contenu du fichier ajouté à l\'entrée',
+                'binary_file_info': '{filename} est un fichier binaire. Seule la référence au fichier sera ajoutée.',
+                'attached_file': '[Fichier joint: {filename}]',
+                'file_attached_status': 'Fichier \'{filename}\' joint',
+                'no_mic': 'Aucun microphone détecté',
+                'speech_not_understood': 'Impossible de comprendre l\'audio. Veuillez parler plus clairement',
+                'service_error': 'Erreur de service: {error}',
+                'recording_error': 'Erreur d\'enregistrement: {error}',
+            }
+        }
+        
+        self.current_language = 'en'
+    
+    def set_language(self, language_code):
+        """Set the current language."""
+        if language_code in self.translations:
+            self.current_language = language_code
+        else:
+            print(f"Language '{language_code}' not supported. Using English.")
+            self.current_language = 'en'
+    
+    def get_translation(self, key, **kwargs):
+        """Get a translated string for the given key with optional formatting."""
+        # Get the translation dictionary for the current language
+        translations = self.translations.get(self.current_language, self.translations['en'])
+        
+        # Get the translated text or fallback to English or the key itself
+        translated = translations.get(key)
+        if translated is None:
+            # Try English as fallback
+            translated = self.translations['en'].get(key, key)
+        
+        # Apply any format parameters
+        if kwargs and '{' in translated:
+            try:
+                translated = translated.format(**kwargs)
+            except KeyError:
+                # If formatting fails, return the unformatted string
+                pass
+                
+        return translated
+    
+    def tr(self, key, **kwargs):
+        """Shorthand method for get_translation."""
+        return self.get_translation(key, **kwargs)
+
+# Create a global translator instance
+translator = Translator()
 
 class AIResponseThread(QThread):
     response_ready = pyqtSignal(str)
@@ -96,10 +319,16 @@ class MessageBubble(QFrame):
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
         
-        # Optimize sender name retrieval
-        sender_name = (self.chat_window.settings.get('user_name', 'You') 
-                      if self.chat_window and hasattr(self.chat_window, 'settings')
-                      else 'You') if self.is_user else 'AI'
+        # Safely get sender name with better error handling
+        if self.is_user:
+            sender_name = "You"
+            if self.chat_window is not None and hasattr(self.chat_window, "settings"):
+                try:
+                    sender_name = self.chat_window.settings.get("user_name", "You")
+                except (AttributeError, TypeError):
+                    pass
+        else:
+            sender_name = "AI"
         
         self.sender_label = QLabel(sender_name)
         self.sender_label.setStyleSheet(
@@ -600,9 +829,15 @@ class ChatBotWindow(QMainWindow):
         self.current_model = self.settings.get('default_model', "llama3.2:1b")
         self.llm = OllamaLLM(model=self.current_model)
         
-        # Setup icons
-        self.icon_manager = IconManager()
-        self.setWindowIcon(IconManager.get_icon("app"))
+        # Setup emoji as window icon
+        pixmap = QPixmap(64, 64)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        font = QFont('Segoe UI Emoji', 40)  # Font that supports emoji
+        painter.setFont(font)
+        painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "🤖")  # Robot emoji for chatbot
+        painter.end()
+        self.setWindowIcon(QIcon(pixmap))
         
         # Add status bar
         self.status_bar = QStatusBar()
@@ -1137,6 +1372,7 @@ class ChatBotWindow(QMainWindow):
         self.splitter.setSizes([250, 750])  # Slightly wider sidebar
         
         main_layout.addWidget(self.splitter)
+    
     def switch_tab(self, index):
         # Update active state of navigation buttons
         for i, btn in enumerate([self.chat_nav_btn, self.templates_nav_btn, 
@@ -1214,28 +1450,160 @@ class ChatBotWindow(QMainWindow):
         """
 
     def load_templates(self):
-        templates = [
-            "Code Explanation - Explain this code in detail",
-            "Summarize - Provide a concise summary",
-            "Translate - Translate to [language]",
-            "Pros and Cons - List pros and cons",
-            "Writing Assistant - Help me write",
-            "Data Analysis - Analyze this dataset"
-        ]
+        """Load templates from the template manager and update the UI list."""
+        self.template_manager = TemplateManager()
+        templates = self.template_manager.get_all_templates()
         
         self.templates_list.clear()
-        for template in templates:
-            self.templates_list.addItem(template)
+        
+        # Add templates to UI with categories
+        categories = self.template_manager.get_template_categories()
+        for category in categories:
+            # Get templates for this category
+            category_templates = self.template_manager.get_templates_by_category(category)
+            
+            for name, template_data in category_templates.items():
+                item = QListWidgetItem(f"{name} - {template_data['description']}")
+                item.setData(Qt.ItemDataRole.UserRole, name)
+                self.templates_list.addItem(item)
+        
+        # Update the combo box with template names
+        self.template_combo.clear()
+        self.template_combo.addItem("None")
+        for name in templates.keys():
+            self.template_combo.addItem(name)
+        self.template_combo.addItem("Custom...")
+        
+        # Connect double-click event for templates
+        self.templates_list.itemDoubleClicked.connect(self.apply_template_from_list)
+        
+        # Setup context menu for templates list
+        self.templates_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.templates_list.customContextMenuRequested.connect(self.show_template_context_menu)
+
+    def show_template_context_menu(self, position):
+        """Show context menu for template list item."""
+        item = self.templates_list.itemAt(position)
+        if not item:
+            return
+            
+        template_name = item.data(Qt.ItemDataRole.UserRole)
+        
+        # Create context menu
+        menu = QMenu()
+        apply_action = menu.addAction("Apply Template")
+        menu.addSeparator()
+        delete_action = menu.addAction("Delete Template")
+        
+        # Show menu and get selected action
+        action = menu.exec(self.templates_list.mapToGlobal(position))
+        
+        if action == apply_action:
+            self.apply_template_from_list(item)
+        elif action == delete_action:
+            self.delete_template(template_name)
+
+    def delete_template(self, template_name):
+        """Delete the selected template after confirmation."""
+        reply = QMessageBox.question(
+            self, 
+            "Delete Template", 
+            f"Are you sure you want to delete the template '{template_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                self.template_manager.delete_template(template_name)
+                self.load_templates()  # Reload templates
+                self.update_status(f"Template '{template_name}' deleted successfully")
+                
+                # If the deleted template is currently selected, reset to "None"
+                if self.template_combo.currentText() == template_name:
+                    self.template_combo.setCurrentText("None")
+            except Exception as e:
+                self.update_status(f"Error deleting template: {str(e)}")
+
+    def apply_template_from_list(self, item):
+        """Apply template when double-clicked from template list."""
+        template_name = item.data(Qt.ItemDataRole.UserRole)
+        self.template_combo.setCurrentText(template_name)
+        self.apply_template(template_name)
+        # Switch to chat tab
+        self.switch_tab(0)
 
     def apply_template(self, template_name):
+        """Apply the selected template to the input box."""
         if template_name == "None":
             return
             
-        if template_name == "Code Explanation":
-            self.input_box.setText("Explain this code in detail:\n```\n\n```")
+        if template_name == "Custom...":
+            self.create_custom_template()
+            return
             
-        elif template_name == "Summarize":
-            self.input_box.setText("Please summarize the following text:\n\n")
+        # Get template from template manager
+        template = self.template_manager.get_template(template_name)
+        if template:
+            # Replace {input} with cursor position marker
+            template = template.replace("{input}", "")
+            self.input_box.setPlainText(template)
+            self.input_box.setFocus()
+            
+            # Move cursor to position of first parameter
+            cursor = self.input_box.textCursor()
+            position = self.input_box.toPlainText().find("{")
+            if position >= 0:
+                cursor.setPosition(position)
+                self.input_box.setTextCursor(cursor)
+
+    def create_custom_template(self):
+        """Create a new custom template."""
+        name, ok = QInputDialog.getText(self, "New Template", "Template Name:")
+        if not ok or not name:
+            return
+            
+        # Get prompt content
+        prompt, ok = QInputDialog.getMultiLineText(
+            self, 
+            "Template Prompt", 
+            "Enter the template prompt (use {input} for user input):"
+        )
+        if not ok or not prompt:
+            return
+            
+        # Get description
+        description, ok = QInputDialog.getText(
+            self, 
+            "Template Description", 
+            "Enter a short description:"
+        )
+        if not ok:
+            description = ""
+            
+        # Get category
+        categories = self.template_manager.get_template_categories()
+        category, ok = QInputDialog.getItem(
+            self,
+            "Template Category",
+            "Select or enter a category:",
+            categories,
+            0,
+            True
+        )
+        if not ok:
+            category = "custom"
+            
+        # Save template
+        try:
+            self.template_manager.add_template(name, prompt, description, category)
+            self.load_templates()  # Reload templates
+            self.update_status(f"Template '{name}' created successfully")
+            
+            # Set as current template
+            self.template_combo.setCurrentText(name)
+            self.apply_template(name)
+        except Exception as e:
+            self.update_status(f"Error creating template: {str(e)}")
 
     def toggle_theme(self):
         if self.current_theme == "dark":
@@ -1369,6 +1737,7 @@ class ChatBotWindow(QMainWindow):
         self.scroll_area.verticalScrollBar().setValue(
             self.scroll_area.verticalScrollBar().maximum()
         )
+    
     def handle_ai_response(self, response):
         timestamp = datetime.now().strftime("%H:%M:%S")
         
@@ -1539,36 +1908,107 @@ class ChatBotWindow(QMainWindow):
             self.update_status(f"Voice input error: {str(e)}")
     
     def attach_file(self):
-        """Allow the user to attach a file to the conversation"""
+        """Allow the user to attach a file to the conversation and process various file types"""
         try:
             file_path, _ = QFileDialog.getOpenFileName(
-                self, "Attach File", "", "All Files (*.*)")
+                self, "Attach File", "", 
+                "Text Files (*.txt);;JSON Files (*.json);;Markdown (*.md);;Python (*.py);;CSV (*.csv);;HTML (*.html);;All Files (*.*)")
             
-            if file_path and os.path.exists(file_path):
-                file_size = os.path.getsize(file_path)
-                max_size = 10 * 1024 * 1024  # 10MB limit
+            if not file_path or not os.path.exists(file_path):
+                return
+            
+            file_size = os.path.getsize(file_path)
+            max_size = 10 * 1024 * 1024  # 10MB limit
+            
+            if file_size > max_size:
+                QMessageBox.warning(self, "File Too Large", 
+                          "File size exceeds 10MB limit.")
+                return
                 
-                if file_size > max_size:
-                    QMessageBox.warning(self, "File Too Large", 
-                                      "File size exceeds 10MB limit.")
-                    return
-                    
-                file_name = os.path.basename(file_path)
-                current_text = self.input_box.toPlainText()
-                file_text = f"\n[Attached file: {file_name}]\n"
-                
-                self.input_box.setPlainText(current_text + file_text if current_text else file_text)
-                
-                # Add file to the files list if not already present
-                existing_items = [self.files_list.item(i).text() for i in range(self.files_list.count())]
-                if file_name not in existing_items:
-                    self.files_list.addItem(file_name)
-                
-                # Initialize attached_files if needed
-                if not hasattr(self, 'attached_files'):
-                    self.attached_files = {}
+            file_name = os.path.basename(file_path)
+            file_extension = os.path.splitext(file_name)[1].lower()
+            
+            # Initialize attached_files if needed
+            if not hasattr(self, 'attached_files'):
+                self.attached_files = {}
                 self.attached_files[file_name] = file_path
-                
+            
+            # Define text-based file types
+            text_extensions = ['.txt', '.json', '.md', '.py', '.js', '.html', '.css', '.csv', 
+                      '.xml', '.yaml', '.yml', '.ini', '.cfg', '.conf', '.sh', '.bat']
+            code_extensions = ['.py', '.js', '.html', '.css', '.java', '.cpp', '.c', '.h', 
+                      '.cs', '.php', '.rb', '.go', '.rs', '.swift', '.kt', '.ts']
+            
+            # Process text-based files
+            file_content = None
+            if file_extension in text_extensions:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        file_content = f.read()
+                    
+                    # Format content based on file type
+                    if file_extension == '.json':
+                        try:
+                            json_data = json.loads(file_content)
+                            file_content = json.dumps(json_data, indent=2)
+                        except json.JSONDecodeError:
+                            QMessageBox.warning(self, "Invalid JSON", 
+                                      "The JSON file is not properly formatted.")
+                    
+                    # Determine language for code files
+                    language = ""
+                    if file_extension in code_extensions:
+                        language = file_extension[1:]  # Remove the dot
+                    
+                    # Ask if user wants to insert content or just reference
+                    if file_content:
+                        reply = QMessageBox.question(self, "File Attached", 
+                                     f"Do you want to send the contents of {file_name} to the AI?",
+                                     QMessageBox.StandardButton.Yes | 
+                                     QMessageBox.StandardButton.No)
+                        
+                        if reply == QMessageBox.StandardButton.Yes:
+                            current_text = self.input_box.toPlainText().strip()
+                            
+                            # Format code blocks properly based on file type
+                            if file_extension in code_extensions or file_extension in ['.json', '.md', '.csv']:
+                                prefix = f"Content of {file_name}:\n\n```{language}\n"
+                                suffix = "\n```"
+                            else:
+                                prefix = f"Content of {file_name}:\n\n"
+                                suffix = ""
+                            
+                            if current_text:
+                                self.input_box.setPlainText(f"{current_text}\n\n{prefix}{file_content}{suffix}")
+                            else:
+                                self.input_box.setPlainText(f"{prefix}{file_content}{suffix}")
+                            
+                            self.update_status(f"File content added to input")
+                            return
+                except UnicodeDecodeError:
+                    QMessageBox.warning(self, "Binary File Detected", 
+                              f"{file_name} appears to be a binary file and cannot be displayed directly.")
+                except Exception as e:
+                    QMessageBox.warning(self, "Error Reading File", 
+                              f"Could not read the file: {str(e)}")
+            else:
+                # Binary file handling
+                QMessageBox.information(self, "Binary File", 
+                             f"{file_name} is a binary file. Only the file reference will be added.")
+            
+            # Default: just attach file reference
+            current_text = self.input_box.toPlainText()
+            file_text = f"\n[Attached file: {file_name}]\n"
+            
+            self.input_box.setPlainText(current_text + file_text if current_text else file_text)
+            
+            # Add file to the files list if not already present
+            existing_items = [self.files_list.item(i).text() for i in range(self.files_list.count())]
+            if file_name not in existing_items:
+                self.files_list.addItem(file_name)
+            
+            self.update_status(f"File '{file_name}' attached")
+            
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to attach file: {str(e)}")
     
@@ -1576,6 +2016,9 @@ class ChatBotWindow(QMainWindow):
         """Open the settings dialog"""
         dialog = SettingsDialog(self)
         if dialog.exec():
+            # Save previous settings for comparison
+            previous_language = self.settings.get('language', 'en')
+            
             # Reload settings
             self.load_settings()
             
@@ -1590,6 +2033,18 @@ class ChatBotWindow(QMainWindow):
             new_model = self.settings.get('default_model')
             if new_model != self.current_model:
                 self.current_model = new_model
+                
+            # Apply language changes if needed
+            current_language = self.settings.get('language', 'en')
+            if current_language != previous_language:
+                # Update translator language
+                translator.set_language(current_language)
+                
+                # Update UI texts
+                self.update_ui_language()
+                
+                self.update_status(translator.tr("language_changed", 
+                                               language="English" if current_language == "en" else "Français"))
     
     def update_history_list(self):
         """Update the history list with conversations from the current session"""
@@ -1609,6 +2064,54 @@ class ChatBotWindow(QMainWindow):
                 self.history_list.addItem(item)
         except Exception as e:
             self.update_status(f"Error updating history list: {str(e)}")
+
+    def update_ui_language(self):
+        """Update all UI elements to use the current language"""
+        # Update window title
+        self.setWindowTitle(translator.tr('window_title'))
+        
+        # Update navigation buttons
+        self.chat_nav_btn.setText(f" {translator.tr('chat')}")
+        self.templates_nav_btn.setText(f" {translator.tr('templates')}")
+        self.history_nav_btn.setText(f" {translator.tr('history')}")
+        self.files_nav_btn.setText(f" {translator.tr('files')}")
+        self.settings_btn.setText(f" {translator.tr('settings')}")
+        
+        # Update tab titles
+        self.tabs.setTabText(0, translator.tr('chat'))
+        self.tabs.setTabText(1, translator.tr('templates'))
+        self.tabs.setTabText(2, translator.tr('history'))
+        self.tabs.setTabText(3, translator.tr('files'))
+        
+        # Update chat tab elements
+        model_label = self.chat_tab.findChild(QLabel, None, Qt.FindChildOption.FindDirectChildrenOnly)
+        if model_label:
+            model_label.setText(translator.tr('model'))
+        
+        # Update other elements in the chat tab
+        for btn in self.chat_tab.findChildren(QPushButton):
+            if "clear" in btn.text().lower():
+                btn.setText(translator.tr('clear'))
+            elif "export" in btn.text().lower():
+                btn.setText(translator.tr('export'))
+        
+        # Update input area
+        template_label = None
+        for label in self.chat_tab.findChildren(QLabel):
+            if label.text().startswith("Template"):
+                template_label = label
+                break
+        
+        if template_label:
+            template_label.setText(translator.tr('template'))
+        
+        self.send_button.setText(translator.tr('send'))
+        
+        # Update placeholder texts
+        self.search_input.setPlaceholderText(translator.tr('search_placeholder'))
+        
+        # Update status bar
+        self.update_status(translator.tr('ready'))
 
     def load_history_item(self, item):
         """Load a selected history item from history into the chat"""
