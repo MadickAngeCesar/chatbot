@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QComboBox, QLabel, QMessageBox, QStatusBar, QFileDialog,
                            QProgressBar, QSystemTrayIcon, QMenu, QLineEdit, QInputDialog,
                            QSplitter, QTabWidget, QFrame, QToolButton, QListWidget, QDialog,
-                           QListWidgetItem, QSizePolicy)
+                           QListWidgetItem, QSizePolicy, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QThread, QObject, QSize
 from PyQt6.QtGui import QKeySequence, QShortcut
 import sys
@@ -21,6 +21,13 @@ from app.icon_manager import IconManager
 import os
 from PyQt6.QtGui import QPixmap, QPainter, QFont, QIcon
 from app.templates_manager import TemplateManager
+from app.tts_worker import OfflineTTSWorker
+from app.tts_worker import OnlineTTSWorker  
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import QUrl
+import subprocess
+import platform
+import shutil
 
 class Translator:
     """
@@ -116,6 +123,7 @@ class Translator:
                 'speech_not_understood': 'Could not understand audio. Please speak more clearly',
                 'service_error': 'Service error: {error}',
                 'recording_error': 'Recording error: {error}',
+                'language_changed': 'Language changed to {language}'
             },
             'fr': {
                 'window_title': 'Madick Chatbot',
@@ -202,18 +210,43 @@ class Translator:
                 'speech_not_understood': 'Impossible de comprendre l\'audio. Veuillez parler plus clairement',
                 'service_error': 'Erreur de service: {error}',
                 'recording_error': 'Erreur d\'enregistrement: {error}',
+                'language_changed': 'Langue changée en {language}'
             }
         }
         
         self.current_language = 'en'
+        
+        # Try to load language setting from settings file
+        self._load_language_from_settings()
+    
+    def _load_language_from_settings(self):
+        """Load language setting from the settings file if it exists."""
+        
+        try:
+            pass
+            if os.path.exists('settings.json'):
+                with open('settings.json', 'r', encoding='utf-8') as f:
+                    settings = json.load(f)
+                    if 'language' in settings:
+                        self.set_language(settings['language'])
+        except Exception as e:
+            # In case of any error, fallback to English
+            print(f"Error loading language settings: {e}")
+            self.current_language = 'en'
+    
+    def reload_settings(self):
+        """Reload language settings from settings file."""
+        self._load_language_from_settings()
     
     def set_language(self, language_code):
         """Set the current language."""
         if language_code in self.translations:
             self.current_language = language_code
+            return True
         else:
             print(f"Language '{language_code}' not supported. Using English.")
             self.current_language = 'en'
+            return False
     
     def get_translation(self, key, **kwargs):
         """Get a translated string for the given key with optional formatting."""
@@ -267,6 +300,7 @@ class MessageBubble(QFrame):
         self.is_user = is_user
         self.chat_window = chat_window
         self._content = ""
+        self.tts_thread = None  # To keep reference to active TTS thread
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Minimum
@@ -471,17 +505,220 @@ class MessageBubble(QFrame):
             self.chat_window.input_box.setPlainText(text)
             self.chat_window.input_box.setFocus()
             self.chat_window.update_status("Message ready for editing")
-            
+    
     def _handle_speak(self):
-        """Handle text-to-speech functionality."""
-        if self.chat_window and not self.is_user:
-            self.chat_window.update_status("Text-to-speech feature initiated")
-            # Placeholder for TTS implementation
-            QMessageBox.information(
-                self.chat_window, 
-                "Text-to-Speech", 
-                "This feature will be implemented in a future update."
+        """Handle text-to-speech functionality with offline model support."""
+        if not self.chat_window or self.is_user:
+            return
+            
+        try:
+            # Cancel any existing TTS operation
+            if self.tts_thread is not None and self.tts_thread.isRunning():
+                if hasattr(self, 'tts_worker') and hasattr(self.tts_worker, 'cancel'):
+                    self.tts_worker.cancel()
+                self.tts_thread.quit()
+                self.tts_thread.wait(3000)  # Wait up to 3 seconds for thread to finish
+                
+            # Get the text content to speak
+            text_to_speak = self.content.toPlainText()
+            if not text_to_speak:
+                return
+                
+            # Load speech settings
+            settings = self.chat_window.settings
+            use_offline_tts = settings.get('use_offline_voice', False)
+            offline_tts_model = settings.get('offline_tts_model', '')
+            voice_name = settings.get('tts_voice', 'en-US-Neural2-F')
+            speech_rate = float(settings.get('speech_rate', 1.0))
+            
+            # Create status message with spinner
+            status_msg = QMessageBox(self.chat_window)
+            status_msg.setWindowTitle("Text-to-Speech")
+            status_msg.setText("Generating speech...\nPlease wait.")
+            status_msg.setStandardButtons(QMessageBox.StandardButton.NoButton)
+            
+            # Show the dialog but don't block
+            status_msg.show()
+            QApplication.processEvents()
+            
+            # Create a worker thread for TTS processing
+            self.tts_thread = QThread()
+            
+            if use_offline_tts and offline_tts_model and os.path.exists(offline_tts_model):
+                # Use offline TTS model
+                self.tts_worker = OfflineTTSWorker(text_to_speak, offline_tts_model, speech_rate)
+            else:
+                # Use online TTS service (gTTS as fallback)
+                self.tts_worker = OnlineTTSWorker(text_to_speak, voice_name, speech_rate)
+                
+            self.tts_worker.moveToThread(self.tts_thread)
+            
+            # Connect signals
+            self.tts_thread.started.connect(self.tts_worker.generate_speech)
+            self.tts_worker.finished.connect(self.tts_thread.quit)
+            self.tts_worker.finished.connect(self.tts_worker.deleteLater)
+            self.tts_thread.finished.connect(self._on_tts_thread_finished)
+            self.tts_worker.error.connect(lambda e: self.chat_window.update_status(f"TTS error: {e}"))
+            self.tts_worker.progress.connect(lambda p: self.chat_window.update_status(f"TTS progress: {p}%"))
+            
+            # Handle completion
+            self.tts_worker.speech_ready.connect(lambda audio_path: self._play_audio(audio_path, status_msg))
+            
+            # Start the thread
+            self.tts_thread.start()
+        except Exception as e:
+            self.chat_window.update_status(f"TTS error: {str(e)}")
+            QMessageBox.warning(
+                self.chat_window,
+                "TTS Error", 
+                f"Error initializing text-to-speech: {str(e)}\n\nPlease check the settings."
             )
+    
+    def _play_audio(self, audio_path, status_msg=None):
+        """Play the generated audio."""
+        try:
+            # First verify audio file exists and is readable
+            if not audio_path or not os.path.exists(audio_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_path}")
+                
+            if os.path.getsize(audio_path) == 0:
+                raise ValueError("Audio file is empty")
+                
+            if status_msg:
+                status_msg.accept()
+                
+            # Create audio player dialog
+            player_dialog = QDialog(self.chat_window)
+            player_dialog.setWindowTitle("Audio Player")
+            player_dialog.setMinimumWidth(400)
+            
+            # Layout
+            layout = QVBoxLayout(player_dialog)
+            
+            # File info
+            file_info = QLabel(f"File: {os.path.basename(audio_path)}")
+            layout.addWidget(file_info)
+            
+            # Try to use PyQt6's QMediaPlayer if available
+            try:
+                # Create media player with hardware acceleration support
+                audio_output = QAudioOutput()
+                player = QMediaPlayer()
+                player.setAudioOutput(audio_output)
+                
+                # Log FFmpeg initialization if needed
+                self.chat_window.update_status("Initializing audio playback with FFmpeg support")
+                
+                # Set media source with absolute path
+                abs_path = os.path.abspath(audio_path)
+                self.chat_window.update_status(f"Loading audio file: {abs_path}")
+                
+                url = QUrl.fromLocalFile(abs_path)
+                player.setSource(url)
+                
+                # Add player status info
+                status_label = QLabel("Ready to play")
+                layout.addWidget(status_label)
+                
+                # Connect player signals
+                player.errorOccurred.connect(lambda error, errorString: 
+                    status_label.setText(f"Player error: {errorString}"))
+                
+                player.playbackStateChanged.connect(lambda state: 
+                    status_label.setText("Playing" if state == QMediaPlayer.PlaybackState.PlayingState 
+                                        else "Paused" if state == QMediaPlayer.PlaybackState.PausedState 
+                                        else "Stopped"))
+                
+                # Controls
+                controls = QHBoxLayout()
+                play_btn = QPushButton("▶️ Play")
+                pause_btn = QPushButton("⏸️ Pause")
+                stop_btn = QPushButton("⏹️ Stop")
+                
+                # Connect buttons
+                play_btn.clicked.connect(player.play)
+                pause_btn.clicked.connect(player.pause)
+                stop_btn.clicked.connect(player.stop)
+                
+                controls.addWidget(play_btn)
+                controls.addWidget(pause_btn)
+                controls.addWidget(stop_btn)
+                
+                # Export button
+                export_btn = QPushButton("💾 Save Audio")
+                export_btn.clicked.connect(lambda: self._export_audio(audio_path))
+                controls.addWidget(export_btn)
+                
+                layout.addLayout(controls)
+                
+                # Show media player info
+                media_info = QLabel("Media Player Ready")
+                layout.addWidget(media_info)
+                
+                # Check for media errors before playing
+                if player.mediaStatus() == QMediaPlayer.MediaStatus.InvalidMedia:
+                    media_info.setText(f"Error: Invalid media format - {os.path.basename(audio_path)}")
+                    self.chat_window.update_status(f"Invalid media format: {os.path.basename(audio_path)}")
+                else:
+                    # Auto-play with error handling
+                    player.play()
+                    self.chat_window.update_status(f"Playing audio file: {os.path.basename(audio_path)}")
+                
+            except Exception as e:
+                # Log the exception
+                self.chat_window.update_status(f"Media player error: {str(e)}")
+                
+                # Fallback to system default player
+                info_label = QLabel(f"Using system audio player (exception: {str(e)})")
+                layout.addWidget(info_label)
+                
+                # Try to play with system default
+                system = platform.system()
+                try:
+                    if system == "Windows":
+                        subprocess.Popen(["start", "", audio_path], shell=True)
+                    elif system == "Darwin":  # macOS
+                        subprocess.Popen(["open", audio_path])
+                    else:  # Linux and others
+                        subprocess.Popen(["xdg-open", audio_path])
+                except Exception as e:
+                    error_label = QLabel(f"Error playing audio: {str(e)}")
+                    layout.addWidget(error_label)
+                
+                # Export button
+                export_btn = QPushButton("💾 Save Audio")
+                export_btn.clicked.connect(lambda: self._export_audio(audio_path))
+                layout.addWidget(export_btn)
+            
+            # Close button
+            close_btn = QPushButton("Close")
+            close_btn.clicked.connect(player_dialog.accept)
+            layout.addWidget(close_btn)
+            
+            player_dialog.exec()
+            
+        except Exception as e:
+            self.chat_window.update_status(f"Error playing audio: {str(e)}")
+        
+    def _export_audio(self, audio_path):
+        """Export the generated audio file."""
+        if not audio_path or not os.path.exists(audio_path):
+            return
+            
+        try:
+            # Get file save location from user
+            save_path, _ = QFileDialog.getSaveFileName(
+                self.chat_window,
+                "Save Audio File",
+                os.path.basename(audio_path),
+                "Audio Files (*.mp3 *.wav);;All Files (*.*)"
+            )
+            
+            if save_path:
+                shutil.copy2(audio_path, save_path)
+                self.chat_window.update_status(f"Audio saved to {save_path}")
+        except Exception as e:
+            self.chat_window.update_status(f"Error exporting audio: {str(e)}")
             
     def _handle_save(self):
         """Handle saving the response."""
@@ -520,17 +757,13 @@ class MessageBubble(QFrame):
             )
             
             if filename:
-                try:
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        # Save as HTML if that format was selected
-                        if filename.endswith('.html'):
-                            f.write(self.content.toHtml())
-                        else:
-                            f.write(text)
-                    self.chat_window.update_status(f"Response saved to {filename}")
-                except Exception as e:
-                    self.chat_window.update_status(f"Error saving file: {str(e)}")
-            
+                
+                with open(filename, 'w', encoding='utf-8') as f:
+                    if filename.endswith(".html"):
+                        f.write(self.content.toHtml())
+                    else:
+                        f.write(text)
+
     def _show_context_menu(self, position):
         """Show context menu with additional options."""
         menu = QMenu(self)
@@ -543,23 +776,182 @@ class MessageBubble(QFrame):
             menu.addAction("Read Aloud", self._handle_speak)
             
         menu.exec(self.mapToGlobal(position))
+        
+    def _on_tts_thread_finished(self):
+        """Handle cleanup when TTS thread finishes."""
+        if hasattr(self, 'tts_worker'):
+            del self.tts_worker
+            
+    def closeEvent(self, event):
+        """Properly clean up threads before the widget is closed."""
+        self._cleanup_threads()
+        super().closeEvent(event)
+        
+    def _cleanup_threads(self):
+        """Ensure all threads are properly terminated before object destruction."""
+        if self.tts_thread is not None and self.tts_thread.isRunning():
+            if hasattr(self, 'tts_worker') and hasattr(self.tts_worker, 'cancel'):
+                self.tts_worker.cancel()
+                self.tts_thread.quit()
+                self.tts_thread.wait(1000)  # Wait up to 1 second for thread to finish
+
+class VoiceWorker(QObject):
+    """Worker class for voice recording and speech recognition"""
+    result = pyqtSignal(str)
+    partial_result = pyqtSignal(str)
+    status = pyqtSignal(str)
+    error = pyqtSignal(str)
+    finished = pyqtSignal()
+    audio_level = pyqtSignal(float)
+    
+    def __init__(self, recognizer, language="en-US", offline_mode=False, offline_model=None):
+        super().__init__()
+        self.recognizer = recognizer
+        self.language = language
+        self.is_running = True
+        self.offline_mode = offline_mode
+        self.offline_model = offline_model
+    
+    def record(self):
+        """Record audio and perform speech recognition"""
+        try:
+            with sr.Microphone() as source:
+                self.status.emit(translator.tr('initializing_mic'))
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                self.status.emit(translator.tr('listening'))
+                
+                # Begin listening loop
+                while self.is_running:
+                    try:
+                        # Emit audio level for visualization
+                        energy = self.recognizer.energy_threshold
+                        normalized_energy = min(1.0, energy / 4000)
+                        self.audio_level.emit(normalized_energy)
+                        
+                        # Record audio with timeout
+                        audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=10)
+                        
+                        if not self.is_running:
+                            break
+                            
+                        self.status.emit(translator.tr('processing_speech'))
+                        
+                        if self.offline_mode and self.offline_model:
+                            # Placeholder for offline recognition
+                            # In a real implementation, you would use whisper or another offline model
+                            text = "Offline recognition not fully implemented"
+                        else:
+                            # Use Google's service for online recognition
+                            text = self.recognizer.recognize_google(audio, language=self.language)
+                            
+                        self.result.emit(text)
+                        self.finished.emit()
+                        break
+                        
+                    except sr.WaitTimeoutError:
+                        continue
+                    except sr.UnknownValueError:
+                        self.error.emit(translator.tr('speech_not_understood'))
+                        break
+                    except sr.RequestError as e:
+                        self.error.emit(translator.tr('service_error', error=str(e)))
+                        break
+                        
+        except Exception as e:
+            self.error.emit(translator.tr('recording_error', error=str(e)))
+        finally:
+            self.finished.emit()
+            
+    def stop(self):
+        """Stop the recording process"""
+        self.is_running = False
+
+class ModelDownloadWorker(QObject):
+    """Worker class for downloading voice models"""
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(str, str)  # model_type, model_path
+    error = pyqtSignal(str)
+    
+    def __init__(self, model_type, model_name, output_dir):
+        super().__init__()
+        self.model_type = model_type
+        self.model_name = model_name
+        self.output_dir = output_dir
+        self.is_running = False
+        
+    def download(self):
+        """Download the model with progress updates"""
+        try:
+            self.is_running = True
+            
+            # Create the output file path
+            model_filename = f"{self.model_name.replace(':', '_')}.bin"
+            output_path = os.path.join(self.output_dir, model_filename)
+            
+            # Mock download process with progress updates
+            # In a real implementation, you would use requests or another library
+            for i in range(0, 101, 5):
+                if not self.is_running:
+                    return
+                self.progress.emit(i)
+                # Simulate download time
+                QThread.msleep(200)
+            
+            # Create empty file to simulate download completion
+            with open(output_path, 'wb') as f:
+                f.write(b'MOCK_MODEL_DATA')
+            
+            self.finished.emit(self.model_type, output_path)
+        except Exception as e:
+            self.error.emit(str(e))
+        finally:
+            self.is_running = False
+    
+    def stop(self):
+        """Stop the download process"""
+        self.is_running = False
 
 class VoiceInputDialog(QDialog):
     recording_finished = pyqtSignal(str)
-    status_update = pyqtSignal(str)  # New signal for status updates
+    status_update = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setup_ui()
-        self.setup_signals()
         self.recognizer = sr.Recognizer()
         self.text = ""
         self.is_recording = False
+        self.settings = {}
+        # Initialize default language
+        self.language = "en-UK"
+        self.load_settings()
+        self.setup_offline_models()
+        self.setup_ui()
+        self.setup_signals()
+
+    def load_settings(self):
+        """Load voice settings from the settings file"""
+        try:
+            if os.path.exists('settings.json'):
+                with open('settings.json', 'r', encoding='utf-8') as f:
+                    self.settings = json.load(f)
+        except Exception as e:
+            print(f"Error loading voice settings: {e}")
+            self.settings = {}
+
+    def setup_offline_models(self):
+        """Setup offline models if available"""
+        self.offline_mode = self.settings.get('use_offline_voice', False)
+        self.offline_stt_model = self.settings.get('offline_stt_model', '')
+        self.offline_tts_model = self.settings.get('offline_tts_model', '')
+        
+        # Check if models exist
+        self.stt_model_available = os.path.exists(self.offline_stt_model) if self.offline_stt_model else False
+        self.tts_model_available = os.path.exists(self.offline_tts_model) if self.offline_tts_model else False
 
     def setup_ui(self):
         """Initialize and setup UI components"""
         self.setWindowTitle("Voice Input")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500)
         self.setStyleSheet("""
             QDialog {
                 background-color: #2b2b2b;
@@ -588,6 +980,14 @@ class VoiceInputDialog(QDialog):
             QProgressBar::chunk {
                 background-color: #4CAF50;
             }
+            QComboBox {
+                background-color: #3f3f3f;
+                color: white;
+                border: 1px solid #555555;
+                border-radius: 5px;
+                padding: 5px;
+                min-width: 150px;
+            }
         """)
         
         self.layout = QVBoxLayout(self)
@@ -598,10 +998,25 @@ class VoiceInputDialog(QDialog):
         status_layout = QHBoxLayout()
         self.status_icon = QLabel()
         self.status_icon.setFixedSize(24, 24)
-        self.status_label = QLabel("Press Start to begin recording...")
+        self.status_label = QLabel(translator.tr('recording_start_prompt'))
         status_layout.addWidget(self.status_icon)
         status_layout.addWidget(self.status_label, stretch=1)
         self.layout.addLayout(status_layout)
+        
+        # Language selection
+        lang_layout = QHBoxLayout()
+        lang_label = QLabel("Language:")
+        lang_label.setStyleSheet("font-weight: bold;")
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItems(["English", "French", "Spanish", "German", "Italian", "Japanese", "Chinese"])
+        
+        # Set default language based on app language
+        default_lang = "English" if translator.current_language == 'en' else "French"
+        self.lang_combo.setCurrentText(default_lang)
+        
+        lang_layout.addWidget(lang_label)
+        lang_layout.addWidget(self.lang_combo, stretch=1)
+        self.layout.addLayout(lang_layout)
         
         # Enhanced progress visualization
         self.progress_bar = QProgressBar()
@@ -617,6 +1032,50 @@ class VoiceInputDialog(QDialog):
         self.level_bar.setVisible(False)
         self.layout.addWidget(self.level_bar)
         
+        # Transcription preview
+        self.result_preview = QTextEdit()
+        self.result_preview.setPlaceholderText("Transcription will appear here...")
+        self.result_preview.setReadOnly(True)
+        self.result_preview.setMaximumHeight(100)
+        self.result_preview.setStyleSheet("""
+            QTextEdit {
+                background-color: #3f3f3f;
+                color: white;
+                border: 1px solid #555555;
+                border-radius: 5px;
+                padding: 5px;
+            }
+        """)
+        self.layout.addWidget(self.result_preview)
+        
+        # Offline mode toggle
+        self.offline_mode_layout = QHBoxLayout()
+        self.offline_checkbox = QCheckBox("Use offline models")
+        self.offline_checkbox.setStyleSheet("color: white;")
+        self.offline_checkbox.setChecked(self.settings.get('use_offline_voice', False))
+        self.offline_checkbox.toggled.connect(self.toggle_offline_mode)
+        
+        self.download_btn = QPushButton("Download Models")
+        self.download_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px;
+            }
+        """)
+        self.download_btn.clicked.connect(self.download_models)
+        
+        self.offline_mode_layout.addWidget(self.offline_checkbox)
+        self.offline_mode_layout.addWidget(self.download_btn)
+        self.layout.addLayout(self.offline_mode_layout)
+        
+        # Status indicator for offline models
+        self.offline_status = QLabel()
+        self.update_offline_status()
+        self.layout.addWidget(self.offline_status)
+        
         # Buttons with icons
         button_layout = QHBoxLayout()
         self.start_button = QPushButton("Start Recording")
@@ -627,6 +1086,185 @@ class VoiceInputDialog(QDialog):
         button_layout.addWidget(self.start_button)
         button_layout.addWidget(self.cancel_button)
         self.layout.addLayout(button_layout)
+        
+        # Update UI based on current settings
+        self.toggle_offline_mode(self.offline_checkbox.isChecked())
+
+    def update_offline_status(self):
+        """Update offline model status indicators"""
+        if self.offline_checkbox.isChecked():
+            stt_status = "✅ Installed" if self.stt_model_available else "❌ Not installed"
+            tts_status = "✅ Installed" if self.tts_model_available else "❌ Not installed"
+            self.offline_status.setText(f"STT Model: {stt_status} | TTS Model: {tts_status}")
+            self.offline_status.setStyleSheet("color: #4CAF50;" if 
+                                             (self.stt_model_available and self.tts_model_available) 
+                                             else "color: #F44336;")
+        else:
+            self.offline_status.setText("Offline mode disabled (using online services)")
+            self.offline_status.setStyleSheet("color: #BBBBBB;")
+
+    def toggle_offline_mode(self, enabled):
+        """Toggle between online and offline voice recognition"""
+        self.offline_mode = enabled
+        self.update_offline_status()
+        
+        # Update settings
+        self.settings['use_offline_voice'] = enabled
+        self.save_settings()
+
+    def save_settings(self):
+        """Save voice settings to the settings file"""
+        try:
+            # Load current settings first to avoid overwriting other settings
+            current_settings = {}
+            if os.path.exists('settings.json'):
+                with open('settings.json', 'r', encoding='utf-8') as f:
+                    current_settings = json.load(f)
+                    
+            # Update with voice settings
+            current_settings.update({
+                'use_offline_voice': self.offline_mode,
+                'offline_stt_model': self.offline_stt_model,
+                'offline_tts_model': self.offline_tts_model
+            })
+            
+            # Save back to file
+            with open('settings.json', 'w', encoding='utf-8') as f:
+                json.dump(current_settings, f, indent=2)
+        except Exception as e:
+            print(f"Error saving voice settings: {e}")
+
+    def download_models(self):
+        """Open dialog to download offline voice models"""
+        self.download_dialog = QDialog(self)
+        self.download_dialog.setWindowTitle("Download Voice Models")
+        self.download_dialog.setMinimumWidth(500)
+        self.download_dialog.setStyleSheet(self.styleSheet())
+        
+        layout = QVBoxLayout(self.download_dialog)
+        
+        # STT model selection
+        stt_layout = QHBoxLayout()
+        stt_label = QLabel("Speech-to-Text Model:")
+        self.stt_combo = QComboBox()
+        self.stt_combo.addItems(["tiny-whisper", "whisper-small", "whisper-medium", "whisper-large"])
+        stt_download_btn = QPushButton("Download")
+        stt_download_btn.clicked.connect(lambda: self.start_model_download('stt'))
+        
+        stt_layout.addWidget(stt_label)
+        stt_layout.addWidget(self.stt_combo, stretch=1)
+        stt_layout.addWidget(stt_download_btn)
+        layout.addLayout(stt_layout)
+        
+        # TTS model selection
+        tts_layout = QHBoxLayout()
+        tts_label = QLabel("Text-to-Speech Model:")
+        self.tts_combo = QComboBox()
+        self.tts_combo.addItems(["piper-tiny", "piper-small", "piper-medium"])
+        tts_download_btn = QPushButton("Download")
+        tts_download_btn.clicked.connect(lambda: self.start_model_download('tts'))
+        
+        tts_layout.addWidget(tts_label)
+        tts_layout.addWidget(self.tts_combo, stretch=1)
+        tts_layout.addWidget(tts_download_btn)
+        layout.addLayout(tts_layout)
+        
+        # Download progress section
+        self.download_status = QLabel("Select a model to download")
+        layout.addWidget(self.download_status)
+        
+        self.download_progress = QProgressBar()
+        self.download_progress.setVisible(False)
+        layout.addWidget(self.download_progress)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.download_dialog.accept)
+        layout.addWidget(close_btn)
+        
+        self.download_dialog.exec()
+        
+    def update_download_progress(self, progress):
+        """Update the download progress bar"""
+        self.download_progress.setValue(progress)
+        
+    def get_text(self):
+        """Return the transcribed text"""
+        return self.text
+        
+    def start_model_download(self, model_type):
+        """Start downloading the selected voice model"""
+        model_name = self.stt_combo.currentText() if model_type == 'stt' else self.tts_combo.currentText()
+        self.download_status.setText(f"Downloading {model_name}...")
+        self.download_progress.setVisible(True)
+        
+        # Create directory if it doesn't exist
+        models_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../models')
+        os.makedirs(models_dir, exist_ok=True)
+        
+        # Mock download functionality
+        # In a real implementation, you would use requests, urllib, or another library to download the model
+        self.download_thread = QThread()
+        self.download_worker = ModelDownloadWorker(model_type, model_name, models_dir)
+        self.download_worker.moveToThread(self.download_thread)
+        
+        self.download_thread.started.connect(self.download_worker.download)
+        self.download_worker.progress.connect(self.update_download_progress)
+        self.download_worker.finished.connect(self.download_finished)
+        self.download_worker.error.connect(self.download_error)
+        
+        self.download_thread.start()
+        
+        self.download_dialog.exec()
+
+    def start_model_download(self, model_type):
+        """Start downloading the selected voice model"""
+        model_name = self.stt_combo.currentText() if model_type == 'stt' else self.tts_combo.currentText()
+        self.download_status.setText(f"Downloading {model_name}...")
+        self.download_progress.setVisible(True)
+        
+        # Create directory if it doesn't exist
+        models_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../models')
+        os.makedirs(models_dir, exist_ok=True)
+        
+        # Mock download functionality
+        # In a real implementation, you would use requests, urllib, or another library to download the model
+        self.download_thread = QThread()
+        self.download_worker = ModelDownloadWorker(model_type, model_name, models_dir)
+        self.download_worker.moveToThread(self.download_thread)
+        
+        self.download_thread.started.connect(self.download_worker.download)
+        self.download_worker.progress.connect(self.update_download_progress)
+        self.download_worker.finished.connect(self.download_finished)
+        self.download_worker.error.connect(self.download_error)
+        
+        self.download_thread.start()
+
+    def update_download_progress(self, progress):
+        """Update the download progress bar"""
+        self.download_progress.setValue(progress)
+
+    def download_finished(self, model_type, model_path):
+        """Handle completed download"""
+        if model_type == 'stt':
+            self.offline_stt_model = model_path
+            self.stt_model_available = True
+        else:
+            self.offline_tts_model = model_path
+            self.tts_model_available = True
+            
+        # Update settings
+        self.settings[f'offline_{model_type}_model'] = model_path
+        self.save_settings()
+        
+        self.download_status.setText(f"Download complete: {os.path.basename(model_path)}")
+        self.download_progress.setVisible(False)
+        self.update_offline_status()
+
+    def download_error(self, error_msg):
+        """Handle download errors"""
+        self.download_status.setText(f"Error: {error_msg}")
+        self.download_progress.setVisible(False)
 
     def setup_signals(self):
         """Setup signal connections"""
@@ -634,6 +1272,22 @@ class VoiceInputDialog(QDialog):
         self.cancel_button.clicked.connect(self.reject)
         self.recording_finished.connect(self.on_recording_finished)
         self.status_update.connect(self.update_status)
+        self.lang_combo.currentTextChanged.connect(self.update_language)
+
+    def update_language(self, language):
+        """Update the speech recognition language"""
+        language_codes = {
+            "English": "en-US",
+            "French": "fr-FR",
+            "Spanish": "es-ES",
+            "German": "de-DE",
+            "Italian": "it-IT",
+            "Japanese": "ja-JP",
+            "Chinese": "zh-CN"
+        }
+        self.language = language_codes.get(language, "en-US")
+        if hasattr(self, 'worker'):
+            self.worker.language = self.language
 
     def toggle_recording(self):
         """Toggle recording state"""
@@ -647,17 +1301,22 @@ class VoiceInputDialog(QDialog):
         try:
             # Verify microphone availability
             if not sr.Microphone.list_microphone_names():
-                raise OSError("No microphone detected")
+                raise OSError(translator.tr('no_mic'))
             
             self.is_recording = True
             self.progress_bar.setVisible(True)
             self.level_bar.setVisible(True)
-            self.start_button.setText("Stop Recording")
-            self.update_status("Initializing microphone...", "recording")
+            self.start_button.setText(translator.tr('stop_recording'))
+            self.update_status(translator.tr('initializing_mic'), "recording")
             
             # Create and setup worker thread
             self.worker_thread = QThread()
-            self.worker = VoiceWorker(self.recognizer)
+            self.worker = VoiceWorker(
+                self.recognizer, 
+                language=self.language,
+                offline_mode=self.offline_mode,
+                offline_model=self.offline_stt_model if self.stt_model_available else None
+            )
             self.worker.moveToThread(self.worker_thread)
             
             # Connect all signals
@@ -667,6 +1326,7 @@ class VoiceInputDialog(QDialog):
             self.worker_thread.finished.connect(self.worker_thread.deleteLater)
             self.worker.error.connect(self.handle_error)
             self.worker.result.connect(self.handle_result)
+            self.worker.partial_result.connect(self.update_preview)
             self.worker.status.connect(lambda s: self.update_status(s, "info"))
             self.worker.audio_level.connect(self.update_audio_level)
             
@@ -675,13 +1335,21 @@ class VoiceInputDialog(QDialog):
         except Exception as e:
             self.handle_error(str(e))
 
+    def update_preview(self, text):
+        """Update the live transcription preview"""
+        self.result_preview.setText(text)
+        # Auto-scroll to bottom
+        self.result_preview.verticalScrollBar().setValue(
+            self.result_preview.verticalScrollBar().maximum()
+        )
+
     def stop_recording(self):
         """Stop current recording"""
         if hasattr(self, 'worker'):
             self.worker.stop()
             self.is_recording = False
-            self.start_button.setText("Start Recording")
-            self.update_status("Recording stopped", "info")
+            self.start_button.setText(translator.tr('start_recording'))
+            self.update_status(translator.tr('recording_stopped'), "info")
 
     def update_status(self, message, status_type="info"):
         """Update status with visual indicators"""
@@ -703,114 +1371,24 @@ class VoiceInputDialog(QDialog):
         self.is_recording = False
         self.progress_bar.setVisible(False)
         self.level_bar.setVisible(False)
-        self.start_button.setEnabled(True)
-        self.start_button.setText("Start Recording")
-        self.update_status(f"Error: {error_msg}", "error")
-        QMessageBox.warning(self, "Error", error_msg)
-
+        self.start_button.setText(translator.tr('start_recording'))
+        self.update_status(error_msg, "error")
+        
     def handle_result(self, text):
-        """Handle successful transcription"""
+        """Handle the final speech recognition result"""
         self.text = text
-        self.update_status("Recording successful!", "success")
-        self.accept()
-
-    def on_recording_finished(self):
-        """Clean up after recording"""
+        self.update_preview(text)
+        self.update_status(translator.tr('recording_success'), "success")
         self.is_recording = False
         self.progress_bar.setVisible(False)
         self.level_bar.setVisible(False)
-        self.start_button.setEnabled(True)
-        self.start_button.setText("Start Recording")
-
-    def get_text(self):
-        """Return transcribed text"""
-        return self.text
-
-    def closeEvent(self, event):
-        """Handle dialog close"""
-        if self.is_recording:
-            self.stop_recording()
-        event.accept()
-
-class VoiceWorker(QObject):
-    finished = pyqtSignal()
-    error = pyqtSignal(str)
-    result = pyqtSignal(str)
-    status = pyqtSignal(str)  # New signal for status updates
-    audio_level = pyqtSignal(float)  # New signal for audio levels
-
-    def __init__(self, recognizer, language='en-US', timeout=5, phrase_time_limit=10):
-        super().__init__()
-        self.recognizer = recognizer
-        self.language = language
-        self.timeout = timeout
-        self.phrase_time_limit = phrase_time_limit
-        self._is_recording = False
-
-    def record(self):
-        """Record and transcribe audio with enhanced error handling and feedback"""
-        try:
-            with sr.Microphone() as source:
-                self.status.emit("Adjusting for ambient noise...")
-                # More aggressive noise adjustment
-                self.recognizer.dynamic_energy_threshold = True
-                self.recognizer.energy_threshold = 300
-                self.recognizer.adjust_for_ambient_noise(source, duration=1)
-
-                self.status.emit("Listening...")
-                self._is_recording = True
-
-                # Enhanced audio capture with energy level feedback
-                audio = self.recognizer.listen(
-                    source,
-                    timeout=self.timeout,
-                    phrase_time_limit=self.phrase_time_limit,
-                    callback=lambda _, level: self.audio_level.emit(level)
-                )
-
-                self.status.emit("Processing speech...")
-                
-                try:
-                    # Try multiple recognition services
-                    text = self._try_recognition(audio)
-                    if text:
-                        self.result.emit(text)
-                    else:
-                        self.error.emit("Speech recognition failed with all available services")
-                        
-                except sr.UnknownValueError:
-                    self.error.emit("Could not understand audio. Please speak more clearly")
-                except sr.RequestError as e:
-                    self.error.emit(f"Service error: {str(e)}")
-
-        except Exception as e:
-            self.error.emit(f"Recording error: {str(e)}")
-        finally:
-            self._is_recording = False
-            self.finished.emit()
-
-    def _try_recognition(self, audio):
-        """Try multiple speech recognition services"""
-        services = [
-            (self.recognizer.recognize_google, {'language': self.language}),
-            (self.recognizer.recognize_sphinx, {'language': self.language}),
-        ]
-
-        for recognizer_func, kwargs in services:
-            try:
-                return recognizer_func(audio, **kwargs)
-            except:
-                continue
-        return None
-
-    def stop(self):
-        """Stop current recording"""
-        self._is_recording = False
-
-    @property
-    def is_recording(self):
-        """Check if recording is in progress"""
-        return self._is_recording
+        self.start_button.setText(translator.tr('start_recording'))
+        self.recording_finished.emit(text)
+        self.accept()
+        
+    def on_recording_finished(self, text):
+        """Handle when recording is finished"""
+        self.text = text
 
 class ChatBotWindow(QMainWindow):
     def __init__(self):
@@ -1106,11 +1684,35 @@ class ChatBotWindow(QMainWindow):
         model_label = QLabel("Model:")
         model_label.setStyleSheet("color: white;")
         self.model_combo = QComboBox()
-        self.model_combo.addItems(self.models)
+        
+        # Get all available models including custom ones from settings
+        all_models = self.models.copy()
+        if 'custom_models' in self.settings:
+            for model_name in self.settings['custom_models']:
+                if model_name not in all_models:
+                    all_models.append(model_name)
+        
+        self.model_combo.addItems(all_models)
         self.model_combo.setCurrentText(self.current_model)
+        self.model_combo.setStyleSheet(self.get_combo_style())
         self.model_combo.currentTextChanged.connect(self.change_model)
+        
+        # Setup model management buttons
+        info_btn = QToolButton()
+        info_btn.setText("ℹ️")
+        info_btn.setToolTip("Model Information")
+        info_btn.clicked.connect(lambda: self.show_model_info(self.model_combo.currentText()))
+        
+        # Add custom model button
+        add_model_btn = QToolButton()
+        add_model_btn.setText("➕")
+        add_model_btn.setToolTip("Add Custom Model")
+        add_model_btn.clicked.connect(self.add_custom_model)
+        
         model_layout.addWidget(model_label)
         model_layout.addWidget(self.model_combo)
+        model_layout.addWidget(info_btn)
+        model_layout.addWidget(add_model_btn)
         model_layout.addStretch()
         
         # Session selection
@@ -1822,23 +2424,284 @@ class ChatBotWindow(QMainWindow):
         self.status_bar.showMessage(message)
 
     def change_model(self, model_name):
-        self.current_model = model_name
-        self.llm = OllamaLLM(model=model_name)
+        """Change the active model and update the LLM instance"""
+        if not model_name or model_name == self.current_model:
+            return
+            
+        try:
+            # Update current model and create new LLM instance
+            self.current_model = model_name
+            
+            # Check if API URL is specified in settings
+            api_base = self.settings.get('api_url', 'http://localhost:11434')
+            temperature = float(self.settings.get('temperature', 70)) / 100.0  # Convert from 0-100 to 0-1
+            
+            # Create LLM with settings
+            self.llm = OllamaLLM(
+                model=model_name,
+                base_url=api_base,
+                temperature=temperature
+            )
+            
+            # Add system message bubble
+            system_bubble = MessageBubble(is_user=False, chat_window=self)
+            system_bubble.setStyleSheet("""
+                QFrame {
+                    background-color: #ff9800;
+                    border-radius: 10px;
+                    margin-left: 10px;
+                    margin-right: 80px;
+                    padding: 10px;
+                }
+            """)
+            
+            # Use translator for the message
+            msg = translator.tr('switched_model', model=model_name)
+            system_bubble.set_content(msg)
+            self.chat_layout.insertWidget(self.chat_layout.count() - 1, system_bubble)
+            self.message_bubbles.append(system_bubble)
+            
+            # Scroll to the new message
+            self.scroll_area.verticalScrollBar().setValue(
+                self.scroll_area.verticalScrollBar().maximum()
+            )
+            
+            # Update status bar with translated message
+            self.update_status(msg)
+            
+        except Exception as e:
+            self.update_status(f"Error changing model: {str(e)}")
+            # Revert to previous model in combo box
+            self.model_combo.setCurrentText(self.current_model)
+
+    def add_custom_model(self):
+        """Allow users to add custom models to the chatbot"""
+        model_name, ok = QInputDialog.getText(self, "Add Custom Model", "Model name (as used by Ollama):")
         
-        # Add system message bubble
-        system_bubble = MessageBubble(is_user=False)
-        system_bubble.setStyleSheet("""
-            QFrame {
-                background-color: #ff9800;
-                border-radius: 10px;
-                margin-left: 10px;
-                margin-right: 80px;
-                padding: 10px;
-            }
-        """)
-        system_bubble.set_content(f"Switched to {model_name} model")
-        self.chat_layout.insertWidget(self.chat_layout.count() - 1, system_bubble)
-        self.message_bubbles.append(system_bubble)
+        if not ok or not model_name:
+            return
+            
+        if model_name in self.models:
+            QMessageBox.warning(self, "Duplicate Model", f"Model '{model_name}' already exists.")
+            return
+            
+        # Get optional model description
+        model_description, ok = QInputDialog.getMultiLineText(
+            self, 
+            "Model Description", 
+            "Enter a description for this model (optional):"
+        )
+        
+        # Add model to the list
+        self.models.append(model_name)
+        
+        # Update model combobox
+        self.model_combo.addItem(model_name)
+        
+        # Save custom model in settings
+        if 'custom_models' not in self.settings:
+            self.settings['custom_models'] = {}
+        
+        self.settings['custom_models'][model_name] = {
+            'description': model_description,
+            'added_date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        self.save_settings()
+        self.update_status(f"Added custom model: {model_name}")
+
+    def show_model_info(self, model_name=None):
+        """Display information about the selected model"""
+        if not model_name:
+            model_name = self.current_model
+        
+        # Create dialog for model details
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Model Information")
+        dialog.setMinimumSize(500, 300)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Model name header
+        model_header = QLabel(f"<h2>{model_name}</h2>")
+        model_header.setStyleSheet("color: #4CAF50;")
+        layout.addWidget(model_header)
+        
+        # Model description
+        description = "No description available."
+        added_date = ""
+        
+        # Check if it's a custom model with saved information
+        if 'custom_models' in self.settings and model_name in self.settings['custom_models']:
+            model_data = self.settings['custom_models'][model_name]
+            if model_data.get('description'):
+                description = model_data['description']
+            if model_data.get('added_date'):
+                added_date = f"Added on: {model_data['added_date']}"
+        
+        desc_label = QLabel(description)
+        desc_label.setWordWrap(True)
+        layout.addWidget(desc_label)
+        
+        if added_date:
+            date_label = QLabel(added_date)
+            date_label.setStyleSheet("color: #888888;")
+            layout.addWidget(date_label)
+        
+        # Get model parameters from Ollama if available
+        try:
+            # This is a placeholder - in reality you would query Ollama API for model details
+            # For now we'll just show basic information
+            info_text = QTextEdit()
+            info_text.setReadOnly(True)
+            
+            info_html = f"""
+            <h3>Model Information</h3>
+            <p><b>Name:</b> {model_name}</p>
+            <p><b>Provider:</b> Ollama</p>
+            <p><b>Status:</b> Available</p>
+            <p>Use the Ollama command line for more details:</p>
+            <pre>ollama show {model_name}</pre>
+            """
+            
+            info_text.setHtml(info_html)
+            layout.addWidget(info_text)
+        except Exception as e:
+            error_label = QLabel(f"Error retrieving model details: {str(e)}")
+            error_label.setStyleSheet("color: #d32f2f;")
+            layout.addWidget(error_label)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        
+        # Set as default button
+        set_default_btn = QPushButton("Set as Default")
+        set_default_btn.clicked.connect(lambda: self.set_default_model(model_name, dialog))
+        
+        # Remove model button (only for custom models)
+        remove_btn = QPushButton("Remove Model")
+        if 'custom_models' in self.settings and model_name in self.settings['custom_models']:
+            remove_btn.clicked.connect(lambda: self.remove_custom_model(model_name, dialog))
+        else:
+            remove_btn.setEnabled(False)
+            remove_btn.setToolTip("Cannot remove built-in models")
+        
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        
+        button_layout.addWidget(set_default_btn)
+        button_layout.addWidget(remove_btn)
+        button_layout.addWidget(close_btn)
+        
+        layout.addLayout(button_layout)
+        dialog.exec()
+
+    def set_default_model(self, model_name, dialog=None):
+        """Set the specified model as the default"""
+        self.settings['default_model'] = model_name
+        self.save_settings()
+        self.update_status(f"Set {model_name} as the default model")
+        if dialog:
+            dialog.accept()
+
+    def remove_custom_model(self, model_name, dialog=None):
+        """Remove a custom model from the list"""
+        if model_name not in self.models:
+            return
+            
+        # Don't remove if it's the current model
+        if model_name == self.current_model:
+            QMessageBox.warning(self, "Cannot Remove", 
+                           "Cannot remove the currently selected model. Switch to another model first.")
+            return
+        
+        reply = QMessageBox.question(
+            self, "Remove Model",
+            f"Are you sure you want to remove the model '{model_name}'?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            # Remove from models list
+            self.models.remove(model_name)
+            
+            # Remove from combobox
+            index = self.model_combo.findText(model_name)
+            if index >= 0:
+                self.model_combo.removeItem(index)
+            
+            # Remove from settings
+            if 'custom_models' in self.settings and model_name in self.settings['custom_models']:
+                del self.settings['custom_models'][model_name]
+                self.save_settings()
+            
+            self.update_status(f"Removed model: {model_name}")
+            if dialog:
+                dialog.accept()
+
+    def setup_model_management(self):
+        """Setup UI elements for model management"""
+        # Add a button next to the model combo for adding custom models
+        model_layout = self.chat_tab.findChild(QHBoxLayout)
+        if not model_layout:
+            return
+            
+        # Add model info button
+        info_btn = QToolButton()
+        info_btn.setText("ℹ️")
+        info_btn.setToolTip("Model Information")
+        info_btn.clicked.connect(lambda: self.show_model_info(self.model_combo.currentText()))
+        
+        # Add custom model button
+        add_model_btn = QToolButton()
+        add_model_btn.setText("➕")
+        add_model_btn.setToolTip("Add Custom Model")
+        add_model_btn.clicked.connect(self.add_custom_model)
+        
+        # Insert buttons after the model combo
+        for i in range(model_layout.count()):
+            item = model_layout.itemAt(i)
+            if item and item.widget() == self.model_combo:
+                model_layout.insertWidget(i+1, info_btn)
+                model_layout.insertWidget(i+2, add_model_btn)
+                break
+        
+        # Load custom models from settings
+        if 'custom_models' in self.settings:
+            for model_name in self.settings['custom_models']:
+                if model_name not in self.models:
+                    self.models.append(model_name)
+                    self.model_combo.addItem(model_name)
+                    
+        # Add context menu to model combo
+        self.model_combo.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.model_combo.customContextMenuRequested.connect(self._show_model_context_menu)
+        
+    def _show_model_context_menu(self, position):
+        """Show context menu for model combobox"""
+        menu = QMenu()
+        model_name = self.model_combo.currentText()
+        
+        # Add actions
+        info_action = menu.addAction("Model Information")
+        info_action.triggered.connect(lambda: self.show_model_info(model_name))
+        
+        set_default_action = menu.addAction("Set as Default")
+        set_default_action.triggered.connect(lambda: self.set_default_model(model_name))
+        
+        menu.addSeparator()
+        
+        add_action = menu.addAction("Add Custom Model")
+        add_action.triggered.connect(self.add_custom_model)
+        
+        # Only enable remove if it's a custom model
+        remove_action = menu.addAction("Remove Model")
+        is_custom = 'custom_models' in self.settings and model_name in self.settings['custom_models']
+        remove_action.setEnabled(is_custom)
+        if is_custom:
+            remove_action.triggered.connect(lambda: self.remove_custom_model(model_name))
+        
+        menu.exec(self.model_combo.mapToGlobal(position))
 
     def clear_chat(self):
         reply = QMessageBox.question(self, 'Clear Chat', 

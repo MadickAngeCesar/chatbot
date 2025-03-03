@@ -9,5 +9,8 @@
     "api_url": "http://localhost:11434",
     "temperature": 100,
     "user_name": "Madick Ange C\u00e9sar",
-    "language": "fr"
+    "language": "en",
+    "use_offline_voice": false,
+    "offline_stt_model": "",
+    "offline_tts_model": ""
 }

@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTabWidget, 
                            QLineEdit, QComboBox, QCheckBox, 
                            QPushButton, QSpinBox, QTextEdit, QGroupBox,
-                           QFormLayout, QLabel)
+                           QFormLayout, QLabel, QListWidget, QMessageBox, QListWidgetItem)
 import json
 import os
 
@@ -107,6 +107,22 @@ class SettingsDialog(QDialog):
         models_tab = self.create_models_tab()
         self.tabs.addTab(models_tab, self.tr('models'))
         
+        # Connect to parent's model management functions if available
+        if hasattr(self.parent(), 'add_custom_model'):
+            self.add_model_button.clicked.connect(self.parent().add_custom_model)
+        
+        if hasattr(self.parent(), 'show_model_info'):
+            self.model_info_button.clicked.connect(lambda: self.parent().show_model_info(
+            self.default_model.currentText()))
+            
+        if hasattr(self.parent(), 'set_default_model'):
+            self.set_default_button.clicked.connect(lambda: self.parent().set_default_model(
+            self.default_model.currentText(), self))
+        
+        # Connect remove button to our method
+        if hasattr(self.parent(), 'remove_custom_model'):
+            self.remove_model_button.clicked.connect(self.remove_custom_model)
+        
         # Advanced tab
         advanced_tab = self.create_advanced_tab()
         self.tabs.addTab(advanced_tab, self.tr('advanced'))
@@ -186,6 +202,28 @@ class SettingsDialog(QDialog):
         self.model_label = QLabel(self.tr('default_model'))
         layout.addRow(self.model_label, self.default_model)
         
+        # Model management buttons
+        button_layout = QHBoxLayout()
+        self.add_model_button = QPushButton("Add Model")
+        self.remove_model_button = QPushButton("Remove Model")
+        self.model_info_button = QPushButton("Model Info")
+        self.set_default_button = QPushButton("Set as Default")
+        
+        button_layout.addWidget(self.add_model_button)
+        button_layout.addWidget(self.remove_model_button)
+        button_layout.addWidget(self.model_info_button)
+        button_layout.addWidget(self.set_default_button)
+        
+        layout.addRow("Model Actions:", button_layout)
+        
+        # Custom models list
+        self.custom_models_list = QListWidget()
+        layout.addRow("Custom Models:", self.custom_models_list)
+        self.populate_custom_models_list()  # Populate the list on creation
+        
+        # Connect selection change event
+        self.custom_models_list.itemSelectionChanged.connect(self.on_custom_model_selection_changed)
+        
         # Streaming
         self.streaming = QCheckBox()
         self.streaming.setChecked(self.settings.get('streaming', True))
@@ -227,6 +265,163 @@ class SettingsDialog(QDialog):
             self.current_language = lang_code
             self.update_ui_language()
     
+    def populate_custom_models_list(self):
+        """Populate the custom models list from settings"""
+        self.custom_models_list.clear()
+        custom_models = self.settings.get('custom_models', {})
+        for model_name in custom_models:
+            item = QListWidgetItem(model_name)
+            self.custom_models_list.addItem(item)
+            
+    def list_all_models(self):
+        """Return a list of all available models (built-in and custom)"""
+        built_in_models = ["llama3.2:1b", "deepseek-r1", "mistral:7b", "llama2:13b"]
+        custom_models = list(self.settings.get('custom_models', {}).keys())
+        return built_in_models + custom_models
+    
+    def on_custom_model_selection_changed(self):
+        """Enable or disable the remove button based on selection"""
+        self.remove_model_button.setEnabled(bool(self.custom_models_list.selectedItems()))
+    
+    def select_model(self):
+        """Returns the currently selected model from the custom models list.
+        
+        Returns:
+            tuple: (model_name, is_selected) where model_name is the selected model name 
+                  or None if no selection, and is_selected is a boolean.
+        """
+        selected = self.custom_models_list.selectedItems()
+        if not selected:
+            return None, False
+        
+        return selected[0].text(), True
+    
+    def remove_custom_model(self):
+        """Show a dialog to select and remove a custom model"""
+        # Get all custom models
+        custom_models = self.settings.get('custom_models', {})
+        if not custom_models:
+            QMessageBox.information(self, 'No Custom Models', 'There are no custom models to remove.')
+            return
+            
+        # Create a model selection dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Model to Remove")
+        dialog.setMinimumWidth(300)
+        
+        layout = QVBoxLayout(dialog)
+        
+        # Add explanatory label
+        label = QLabel("Select a model to remove:")
+        layout.addWidget(label)
+        
+        # Add model selection list
+        model_list = QListWidget()
+        for model_name in custom_models:
+            item = QListWidgetItem(model_name)
+            model_list.addItem(item)
+        layout.addWidget(model_list)
+        
+        # Add buttons
+        button_layout = QHBoxLayout()
+        remove_button = QPushButton("Remove")
+        cancel_button = QPushButton("Cancel")
+        button_layout.addWidget(remove_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        # Connect buttons
+        remove_button.clicked.connect(dialog.accept)
+        cancel_button.clicked.connect(dialog.reject)
+        remove_button.setEnabled(False)
+        
+        # Enable remove button only when a model is selected
+        model_list.itemSelectionChanged.connect(
+            lambda: remove_button.setEnabled(bool(model_list.selectedItems()))
+        )
+        
+        # Show dialog and process result
+        if dialog.exec() == QDialog.DialogCode.Accepted and model_list.selectedItems():
+            model_name = model_list.selectedItems()[0].text()
+            self._remove_selected_model(model_name)
+    
+    def _remove_selected_model(self, model_name):
+        """Remove the specified custom model from settings with proper error handling"""
+        # Check if it's a built-in model that shouldn't be removed
+        built_in_models = ["llama3.2:1b"]
+        if model_name in built_in_models:
+            QMessageBox.warning(
+                self, 
+                'Protected Model', 
+                f"'{model_name}' is a built-in model and cannot be removed."
+            )
+            return
+        
+        # Confirm deletion with more detailed message
+        reply = QMessageBox.question(
+            self, 
+            'Remove Model', 
+            f"Are you sure you want to remove the model '{model_name}'?\n\n"
+            f"This will remove the model configuration from settings.\n"
+            f"The model files themselves will not be deleted.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No  # Default to No for safety
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # Remove from settings
+                custom_models = self.settings.get('custom_models', {})
+                if model_name in custom_models:
+                    del custom_models[model_name]
+                    self.settings['custom_models'] = custom_models
+                    
+                    # Save settings immediately
+                    with open('settings.json', 'w') as f:
+                        json.dump(self.settings, f, indent=4)
+                    
+                    # If this was the default model, change to a safe default
+                    if self.settings.get('default_model') == model_name:
+                        self.settings['default_model'] = "llama3.2:1b"
+                        self.default_model.setCurrentText("llama3.2:1b")
+                    
+                    # Repopulate list
+                    self.populate_custom_models_list()
+                    
+                    # Update default model dropdown
+                    current_model = self.default_model.currentText()
+                    self.default_model.clear()
+                    self.default_model.addItems(built_in_models + list(custom_models.keys()))
+                    
+                    # Try to restore the previous selection, or use default
+                    if self.default_model.findText(current_model) >= 0:
+                        self.default_model.setCurrentText(current_model)
+                    else:
+                        self.default_model.setCurrentText("llama3.2:1b")
+                    
+                    # Pass the change to parent if it exists
+                    if hasattr(self.parent(), 'remove_custom_model'):
+                        self.parent().remove_custom_model(model_name, self)
+                    
+                    # Show success message
+                    QMessageBox.information(
+                        self, 
+                        'Model Removed', 
+                        f"Model '{model_name}' was successfully removed."
+                    )
+                else:
+                    QMessageBox.warning(
+                        self, 
+                        'Model Not Found', 
+                        f"Model '{model_name}' was not found in custom models."
+                    )
+            except Exception as e:
+                QMessageBox.critical(
+                    self, 
+                    'Error', 
+                    f"An error occurred while removing the model:\n{str(e)}"
+                )
+
     def update_ui_language(self):
         """Update all UI elements to the current language"""
         # Update window title
