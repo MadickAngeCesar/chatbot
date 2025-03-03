@@ -1,13 +1,11 @@
 from PyQt6.QtCore import QObject, pyqtSignal
 import os
 import tempfile
-import time
-import wave
-import array
 import pyttsx3  # For offline TTS
-import requests # For online TTS
-import json
-import io
+# The following imports are kept for the OnlineTTSWorker implementation
+# Will be used when the API implementation is completed
+import requests  # For online TTS - unused for now but kept for future implementation  # noqa
+import json      # For online TTS - unused for now but kept for future implementation  # noqa
 
 class TTSWorkerBase(QObject):
     # Base class remains unchanged
@@ -30,12 +28,12 @@ class TTSWorkerBase(QObject):
 class OfflineTTSWorker(TTSWorkerBase):
     """Worker for offline text-to-speech processing"""
     
-    def __init__(self, text, model_path, speech_rate=1.0):
-        super().__init__(text, None, speech_rate)
-        self.model_path = model_path
+    def __init__(self, text, voice_id=None, speech_rate=1.0, volume=1.0):
+        super().__init__(text, voice_id, speech_rate)
+        self.volume = volume
         
     def generate_speech(self):
-        """Generate speech using offline TTS model"""
+        """Generate speech using offline TTS engine"""
         try:
             # Create temporary file for audio output
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
@@ -44,16 +42,30 @@ class OfflineTTSWorker(TTSWorkerBase):
             
             self.progress.emit(10)
             
-            # Use pyttsx3 for offline TTS
+            # Initialize pyttsx3 engine
             engine = pyttsx3.init()
+            
+            # Configure voice properties
             engine.setProperty('rate', int(engine.getProperty('rate') * self.speech_rate))
+            engine.setProperty('volume', self.volume)
             
-            # Set voice if available
-            voices = engine.getProperty('voices')
-            if voices and len(voices) > 0:
-                engine.setProperty('voice', voices[0].id)
+            # Set specific voice if requested
+            if self.voice_id:
+                voices = engine.getProperty('voices')
+                for voice in voices:
+                    if self.voice_id.lower() in voice.id.lower():
+                        engine.setProperty('voice', voice.id)
+                        break
+            # Otherwise use default voice
+            else:
+                voices = engine.getProperty('voices')
+                if voices:
+                    engine.setProperty('voice', voices[0].id)
             
-            self.progress.emit(30)
+            self.progress.emit(40)
+            
+            if self.is_cancelled:
+                raise Exception("TTS generation cancelled")
             
             # Save to file
             engine.save_to_file(self.text, output_path)
@@ -62,6 +74,11 @@ class OfflineTTSWorker(TTSWorkerBase):
             
             # Wait for file generation to complete
             engine.runAndWait()
+            
+            if self.is_cancelled:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                raise Exception("TTS generation cancelled")
             
             self.progress.emit(100)
             self.speech_ready.emit(output_path)
@@ -87,20 +104,22 @@ class OnlineTTSWorker(TTSWorkerBase):
             
             self.progress.emit(10)
             
-            # Example using a generic TTS service API (replace with your preferred service)
             # This is a placeholder - you'll need to implement the specific API calls
             # for your chosen service (Google, AWS, Azure, etc.)
             
-            headers = {
+            # These variables are prepared for future API implementation
+            # and will be used when the API call is uncommented
+            headers = {  # Unused for now - will be used with actual API implementation  # noqa
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key}"
             }
             
-            data = {
+            data = {  # Unused for now - will be used with actual API implementation  # noqa
                 "text": self.text,
                 "voice": self.voice_id,
                 "rate": self.speech_rate
             }
+            
             
             self.progress.emit(30)
             

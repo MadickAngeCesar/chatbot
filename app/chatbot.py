@@ -512,6 +512,9 @@ class MessageBubble(QFrame):
             return
             
         try:
+            # Note: This method handles Text-to-Speech (TTS), not Speech-to-Text (STT)
+            # For offline STT implementation, see the VoiceWorker.record() method
+            
             # Cancel any existing TTS operation
             if self.tts_thread is not None and self.tts_thread.isRunning():
                 if hasattr(self, 'tts_worker') and hasattr(self.tts_worker, 'cancel'):
@@ -573,7 +576,7 @@ class MessageBubble(QFrame):
                 "TTS Error", 
                 f"Error initializing text-to-speech: {str(e)}\n\nPlease check the settings."
             )
-    
+
     def _play_audio(self, audio_path, status_msg=None):
         """Play the generated audio."""
         try:
@@ -621,7 +624,7 @@ class MessageBubble(QFrame):
                 layout.addWidget(status_label)
                 
                 # Connect player signals
-                player.errorOccurred.connect(lambda error, errorString: 
+                player.errorOccurred.connect(lambda _error, errorString: 
                     status_label.setText(f"Player error: {errorString}"))
                 
                 player.playbackStateChanged.connect(lambda state: 
@@ -699,7 +702,7 @@ class MessageBubble(QFrame):
             
         except Exception as e:
             self.chat_window.update_status(f"Error playing audio: {str(e)}")
-        
+     
     def _export_audio(self, audio_path):
         """Export the generated audio file."""
         if not audio_path or not os.path.exists(audio_path):
@@ -781,19 +784,31 @@ class MessageBubble(QFrame):
         """Handle cleanup when TTS thread finishes."""
         if hasattr(self, 'tts_worker'):
             del self.tts_worker
-            
-    def closeEvent(self, event):
-        """Properly clean up threads before the widget is closed."""
+        self.tts_thread = None
+        
+    def __del__(self):
+        """Destructor to ensure threads are cleaned up when object is garbage collected."""
         self._cleanup_threads()
-        super().closeEvent(event)
         
     def _cleanup_threads(self):
         """Ensure all threads are properly terminated before object destruction."""
-        if self.tts_thread is not None and self.tts_thread.isRunning():
-            if hasattr(self, 'tts_worker') and hasattr(self.tts_worker, 'cancel'):
-                self.tts_worker.cancel()
+        try:
+            if hasattr(self, 'tts_thread') and self.tts_thread is not None and self.tts_thread.isRunning():
+                if hasattr(self, 'tts_worker') and hasattr(self.tts_worker, 'cancel'):
+                    self.tts_worker.cancel()
                 self.tts_thread.quit()
-                self.tts_thread.wait(1000)  # Wait up to 1 second for thread to finish
+                # Use longer timeout and check if thread actually finished
+                if not self.tts_thread.wait(3000):  # Wait up to 3 seconds for thread to finish
+                    self.tts_thread.terminate()  # Force termination if necessary
+                    self.tts_thread.wait()  # Wait for termination to complete
+        except RuntimeError:
+            # Handle case where thread might already be deleted
+            pass
+            self.tts_thread.quit()
+            # Use longer timeout and check if thread actually finished
+            if not self.tts_thread.wait(3000):  # Wait up to 3 seconds for thread to finish
+                self.tts_thread.terminate()  # Force termination if necessary
+                self.tts_thread.wait()  # Wait for termination to complete
 
 class VoiceWorker(QObject):
     """Worker class for voice recording and speech recognition"""
