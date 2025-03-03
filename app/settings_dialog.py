@@ -59,6 +59,7 @@ class SettingsDialog(QDialog):
         
         # Set current language
         self.current_language = self.settings.get('language', 'en')
+        self.current_language = self.translations[self.current_language].get('language', 'en')
         
         self.setWindowTitle(self.tr('settings'))
         self.setMinimumWidth(500)
@@ -69,30 +70,7 @@ class SettingsDialog(QDialog):
     def tr(self, key):
         """Translate a string using the current language"""
         return self.translations.get(self.current_language, {}).get(key, key)
-        
-    def load_settings(self):
-        # Default settings
-        default_settings = {
-            'theme': 'dark',
-            'default_model': 'llama3.2:1b',
-            'streaming': True,
-            'text_to_speech': False,
-            'system_prompt': '',
-            'max_history': 50,
-            'font_size': 14,
-            'language': 'en'  # Default language code
-        }
-        
-        # Try to load from file
-        if os.path.exists('settings.json'):
-            try:
-                with open('settings.json', 'r') as f:
-                    return json.load(f)
-            except:
-                pass
-        
-        return default_settings
-        
+           
     def init_ui(self):
         layout = QVBoxLayout(self)
         
@@ -471,3 +449,29 @@ class SettingsDialog(QDialog):
             json.dump(self.settings, f, indent=4)
             
         self.accept()
+        
+    def load_settings(self):
+        # Default settings
+        default_settings = {
+            'theme': 'dark',
+            'default_model': 'llama3.2:1b',
+            'streaming': True,
+            'text_to_speech': False,
+            'system_prompt': '',
+            'max_history': 50,
+            'font_size': 14,
+            'language': 'en',
+            'api_url': 'http://localhost:11434',
+            'temperature': 70
+        }
+        
+        # Try to load from file
+        try:
+            if os.path.exists('settings.json'):
+                with open('settings.json', 'r') as f:
+                    settings = json.load(f)
+                return settings
+        except Exception as e:
+            print(f"Error loading settings: {e}")
+            
+        return default_settings
