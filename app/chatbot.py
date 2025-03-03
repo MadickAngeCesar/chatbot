@@ -194,7 +194,7 @@ class ChatBotWindow(QMainWindow):
         sidebar_layout.setSpacing(8)
         
         # Enhanced logo section
-        logo_label = QLabel("Madick AI")
+        logo_label = QLabel("Local AI")
         logo_label.setStyleSheet("""
             font-size: 24px;
             font-weight: bold;

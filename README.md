@@ -1,22 +1,43 @@
 # Madick AI Chatbot
 
-A feature-rich desktop chatbot application built with PyQt6 and Ollama LLMs.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Ollama](https://img.shields.io/badge/LLM-Ollama-green)](https://ollama.ai)
+[![PyQt6](https://img.shields.io/badge/GUI-PyQt6-41CD52)](https://www.riverbankcomputing.com/software/pyqt/)
 
-## Features
+A feature-rich desktop chatbot application built with PyQt6 and Ollama LLMs, designed for seamless local AI interactions.
 
-- Multiple model support (llama3, deepseek, mistral, llama2)
-- Chat session management
-- Conversation history with search capability
-- Streaming responses
-- Voice input support
-- Template system for quick prompts
-- Dark and light themes
-- File attachments
-- Exportable chat history (JSON, TXT, HTML, MD)
-- System tray integration
-- Keyboard shortcuts
+<div align="center">
+  <!-- Placeholder for a logo or screenshot -->
+  <p><i>Intelligent conversations on your desktop - no cloud required</i></p>
+</div>
 
-## Installation
+## ✨ Features
+
+- **Multiple LLM Support**: Seamlessly switch between various models:
+  - Llama 3 (8B and 70B variants)
+  - DeepSeek
+  - Mistral (7B and Instruct)
+  - Llama 2
+  - Any other model supported by Ollama
+- **Chat Management**:
+  - Create, save, and load multiple chat sessions
+  - Organize conversations by topic or project
+- **Conversation History**: Full searchable history with metadata
+- **Real-time Interactions**:
+  - Streaming responses for natural conversation flow
+  - Voice input support for hands-free operation
+- **Productivity Tools**:
+  - Template system for frequently used prompts
+  - File attachments for context-aware conversations
+  - Code syntax highlighting
+- **User Experience**:
+  - Dark and light themes
+  - System tray integration
+  - Comprehensive keyboard shortcuts
+- **Export Options**: Save conversations in JSON, TXT, HTML, or MD formats
+
+## 🚀 Installation
 
 1. Clone this repository:
 ```
@@ -31,7 +52,7 @@ pip install -r requirements.txt
 
 3. Make sure you have Ollama installed and running:
    - Download from [ollama.ai](https://ollama.ai)
-   - Pull models: `ollama pull llama3.2:1b mistral:7b`
+   - Pull models: `ollama pull llama3.2:1b`
 
 ## Usage
 
@@ -73,6 +94,28 @@ Or on Windows, you can double-click the `run_chatbot.bat` file.
 - markdown
 - pygments
 - SpeechRecognition
+
+## 🛠️ Development Setup
+
+1. Set up a virtual environment (recommended):
+```
+python -m venv venv
+source venv/bin/activate  # On Windows use `venv\Scripts\activate`
+```
+
+2. Install the development dependencies:
+```
+pip install -r requirements-dev.txt
+```
+
+3. Run the application in development mode:
+```
+python main.py
+```
+
+## 🤝 Contributing
+
+We welcome contributions! Please read our [Contributing Guidelines](CONTRIBUTING.md) for more details.
 
 ## License
 

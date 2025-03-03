@@ -7,6 +7,8 @@ import speech_recognition as sr
 from app.icon_manager import IconManager
 import os
 from app.chatbot_translator import Translator
+import requests
+from pathlib import Path
 
 
 # Create a global translator instance
@@ -101,31 +103,85 @@ class ModelDownloadWorker(QObject):
         self.output_dir = output_dir
         self.is_running = False
         
+        # Model repository information
+        self.model_urls = {
+            'stt': {
+                'tiny-whisper': 'https://huggingface.co/openai/whisper-tiny/resolve/main/model.bin',
+                'whisper-small': 'https://huggingface.co/openai/whisper-small/resolve/main/model.bin',
+                'whisper-medium': 'https://huggingface.co/openai/whisper-medium/resolve/main/model.bin',
+                'whisper-large': 'https://huggingface.co/openai/whisper-large/resolve/main/model.bin'
+            },
+            'tts': {
+                'piper-tiny': 'https://huggingface.co/rhasspy/piper-tiny/resolve/main/model.bin',
+                'piper-small': 'https://huggingface.co/rhasspy/piper-small/resolve/main/model.bin',
+                'piper-medium': 'https://huggingface.co/rhasspy/piper-medium/resolve/main/model.bin'
+            }
+        }
+        
     def download(self):
         """Download the model with progress updates"""
         try:
+            
             self.is_running = True
             
-            # Create the output file path
-            model_filename = f"{self.model_name.replace(':', '_')}.bin"
+            # Create the output directory if it doesn't exist
+            Path(self.output_dir).mkdir(parents=True, exist_ok=True)
+            
+            # Generate safe filename for the model
+            model_filename = f"{self.model_name.replace(':', '_').replace('/', '_')}.bin"
             output_path = os.path.join(self.output_dir, model_filename)
             
-            # Mock download process with progress updates
-            # In a real implementation, you would use requests or another library
-            for i in range(0, 101, 5):
-                if not self.is_running:
-                    return
-                self.progress.emit(i)
-                # Simulate download time
-                QThread.msleep(200)
+            # Check if model already exists
+            if os.path.exists(output_path):
+                self.finished.emit(self.model_type, output_path)
+                return
             
-            # Create empty file to simulate download completion
-            with open(output_path, 'wb') as f:
-                f.write(b'MOCK_MODEL_DATA')
+            # Get model URL
+            model_url = self.model_urls.get(self.model_type, {}).get(self.model_name)
+            if not model_url:
+                self.error.emit(f"No download URL found for {self.model_name}")
+                return
+            
+            # Download the model with progress reporting
+            response = requests.get(model_url, stream=True)
+            response.raise_for_status()
+            
+            # Get total file size
+            total_size = int(response.headers.get('content-length', 0))
+            downloaded_size = 0
+            
+            # Write to temporary file first
+            temp_path = output_path + ".download"
+            
+            with open(temp_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if not self.is_running:
+                        os.remove(temp_path)
+                        return
+                        
+                    if chunk:
+                        f.write(chunk)
+                        downloaded_size += len(chunk)
+                        
+                        # Calculate and report progress
+                        if total_size > 0:
+                            progress = int((downloaded_size / total_size) * 100)
+                            self.progress.emit(progress)
+            
+            # Move the file to its final location
+            os.rename(temp_path, output_path)
+            
+            # Verify the download
+            if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+                self.error.emit("Downloaded file is invalid or empty")
+                return
             
             self.finished.emit(self.model_type, output_path)
         except Exception as e:
             self.error.emit(str(e))
+            # Clean up partial downloads
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
         finally:
             self.is_running = False
     
@@ -409,6 +465,7 @@ class VoiceInputDialog(QDialog):
     def update_download_progress(self, progress):
         """Update the download progress bar"""
         self.download_progress.setValue(progress)
+        self.download_progress.setFormat(f"{progress}% - Downloading model")
         
     def get_text(self):
         """Return the transcribed text"""
@@ -419,52 +476,26 @@ class VoiceInputDialog(QDialog):
         model_name = self.stt_combo.currentText() if model_type == 'stt' else self.tts_combo.currentText()
         self.download_status.setText(f"Downloading {model_name}...")
         self.download_progress.setVisible(True)
+        self.download_progress.setValue(0)
         
         # Create directory if it doesn't exist
         models_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../models')
         os.makedirs(models_dir, exist_ok=True)
         
-        # Mock download functionality
-        # In a real implementation, you would use requests, urllib, or another library to download the model
+        # Create and setup the download worker
         self.download_thread = QThread()
         self.download_worker = ModelDownloadWorker(model_type, model_name, models_dir)
         self.download_worker.moveToThread(self.download_thread)
         
+        # Connect signals
         self.download_thread.started.connect(self.download_worker.download)
         self.download_worker.progress.connect(self.update_download_progress)
         self.download_worker.finished.connect(self.download_finished)
         self.download_worker.error.connect(self.download_error)
+        self.download_thread.finished.connect(self.download_thread.deleteLater)
         
+        # Start the download thread
         self.download_thread.start()
-        
-        self.download_dialog.exec()
-
-    def start_model_download(self, model_type):
-        """Start downloading the selected voice model"""
-        model_name = self.stt_combo.currentText() if model_type == 'stt' else self.tts_combo.currentText()
-        self.download_status.setText(f"Downloading {model_name}...")
-        self.download_progress.setVisible(True)
-        
-        # Create directory if it doesn't exist
-        models_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../models')
-        os.makedirs(models_dir, exist_ok=True)
-        
-        # Mock download functionality
-        # In a real implementation, you would use requests, urllib, or another library to download the model
-        self.download_thread = QThread()
-        self.download_worker = ModelDownloadWorker(model_type, model_name, models_dir)
-        self.download_worker.moveToThread(self.download_thread)
-        
-        self.download_thread.started.connect(self.download_worker.download)
-        self.download_worker.progress.connect(self.update_download_progress)
-        self.download_worker.finished.connect(self.download_finished)
-        self.download_worker.error.connect(self.download_error)
-        
-        self.download_thread.start()
-
-    def update_download_progress(self, progress):
-        """Update the download progress bar"""
-        self.download_progress.setValue(progress)
 
     def download_finished(self, model_type, model_path):
         """Handle completed download"""
@@ -482,11 +513,21 @@ class VoiceInputDialog(QDialog):
         self.download_status.setText(f"Download complete: {os.path.basename(model_path)}")
         self.download_progress.setVisible(False)
         self.update_offline_status()
+        
+        # Clean up thread and worker
+        if hasattr(self, 'download_thread') and self.download_thread.isRunning():
+            self.download_thread.quit()
+            self.download_thread.wait()
 
     def download_error(self, error_msg):
         """Handle download errors"""
         self.download_status.setText(f"Error: {error_msg}")
         self.download_progress.setVisible(False)
+        
+        # Clean up thread and worker
+        if hasattr(self, 'download_thread') and self.download_thread.isRunning():
+            self.download_thread.quit()
+            self.download_thread.wait()
 
     def setup_signals(self):
         """Setup signal connections"""
