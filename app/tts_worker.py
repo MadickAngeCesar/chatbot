@@ -4,8 +4,6 @@ import tempfile
 import pyttsx3  # For offline TTS
 # The following imports are kept for the OnlineTTSWorker implementation
 # Will be used when the API implementation is completed
-import requests  # For online TTS - unused for now but kept for future implementation  # noqa
-import json      # For online TTS - unused for now but kept for future implementation  # noqa
 
 class TTSWorkerBase(QObject):
     # Base class remains unchanged

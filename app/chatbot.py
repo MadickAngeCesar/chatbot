@@ -4,9 +4,10 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                            QProgressBar, QSystemTrayIcon, QMenu, QLineEdit, QInputDialog,
                            QSplitter, QTabWidget, QToolButton, QListWidget, QDialog,
                            QListWidgetItem)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal, QThread
 from PyQt6.QtGui import QKeySequence, QShortcut, QPixmap, QPainter, QFont, QIcon
 
+import sys
 import os
 import json
 import markdown
@@ -23,7 +24,7 @@ from app.templates_manager import TemplateManager
 from app.message_bubble import MessageBubble
 from app.chatbot_translator import Translator
 from app.stt_worker import VoiceInputDialog
-from app.styles import get_combo_style, get_button_style
+from app.styles import get_sidebar_button_style, get_combo_style, get_button_style
 from app.ai_response import AIResponseThread
 
 # Create a global translator instance
@@ -194,7 +195,7 @@ class ChatBotWindow(QMainWindow):
         sidebar_layout.setSpacing(8)
         
         # Enhanced logo section
-        logo_label = QLabel("Local AI")
+        logo_label = QLabel("Madick AI")
         logo_label.setStyleSheet("""
             font-size: 24px;
             font-weight: bold;
